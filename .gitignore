@@ -1,0 +1,17 @@
+# Runtime data — never commit
+logs/
+workspace/
+backups/
+node_modules/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/

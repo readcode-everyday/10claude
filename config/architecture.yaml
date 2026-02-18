@@ -1,0 +1,5 @@
+protected_paths:
+  - "/app/config"
+  - "/workspace/memory"
+  - "/workspace/semantic_memory"
+  - "/var/run/docker.sock"

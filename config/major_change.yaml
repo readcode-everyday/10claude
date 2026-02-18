@@ -1,0 +1,14 @@
+thresholds:
+  files_changed: 5
+  insertions: 50
+  deletions: 20
+
+always_major:
+  - "config/"
+  - "architecture"
+  - "database schema"
+  - "migration"
+
+events:
+  test_suite_fixed: true
+  dag_stage_complete: true

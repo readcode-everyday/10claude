@@ -4,9 +4,12 @@ The CLI selects (or creates) a project before submitting any task; the chosen
 project_path is embedded in the task payload and flows through the entire pipeline.
 """
 import os
+import shutil
 import subprocess
 import logging
 from pathlib import Path
+
+CLAUDE_MD_TEMPLATE = Path("/app/config/CLAUDE.md")
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +43,12 @@ def create_project(name: str) -> Path:
     (path / ".gitkeep").touch()
     subprocess.run(["git", "add", ".gitkeep"], cwd=path, check=True, capture_output=True, env=env)
     subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True, env=env)
+
+    # Inject agent rules so Claude Code reads them automatically
+    if CLAUDE_MD_TEMPLATE.exists():
+        shutil.copy(CLAUDE_MD_TEMPLATE, path / "CLAUDE.md")
+        subprocess.run(["git", "add", "CLAUDE.md"], cwd=path, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "add agent rules"], cwd=path, check=True, capture_output=True, env=env)
 
     log.info(f"Created project: {path}")
     return path

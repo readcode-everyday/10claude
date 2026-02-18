@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 from typing import Tuple
 
-from openclaw.adapters.git.repo import create_worktree, remove_worktree
+from openclaw.adapters.git.repo import create_worktree, remove_worktree, REPO_ROOT
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +35,9 @@ def execute_node(task: dict, node: dict) -> Tuple[bool, str]:
 
     log.info(f"[worker] node='{node_id}' action='{action}' agent='{agent}' task='{task_id}'")
 
+    repo_root = Path(task.get("project_path", str(REPO_ROOT)))
     wt_name = f"{task_id}-{node_id}"
-    wt_path = str(create_worktree(wt_name))
+    wt_path = str(create_worktree(wt_name, repo_root))
 
     try:
         if agent == "claude":
@@ -56,4 +57,4 @@ def execute_node(task: dict, node: dict) -> Tuple[bool, str]:
         return False, str(e)
 
     finally:
-        remove_worktree(wt_name)
+        remove_worktree(wt_name, repo_root)

@@ -31,8 +31,9 @@ def execute_long_horizon(task: Dict[str, Any]) -> Dict[str, Any]:
         done_when = sg.get("done_when", "implementation complete")
         log.info(f"[loop] sub-goal {i}/{len(subgoals)}: '{goal}' | done_when='{done_when}'")
 
-        dag = plan_dag({"prompt": goal, "id": f"{task_id}-sg{i}"})
-        result = execute_dag_parallel({"prompt": goal, "id": f"{task_id}-sg{i}"}, dag)
+        subtask = {"prompt": goal, "id": f"{task_id}-sg{i}", "project_path": task.get("project_path")}
+        dag = plan_dag(subtask)
+        result = execute_dag_parallel(subtask, dag)
 
         if not result.get("success"):
             log.error(f"[loop] sub-goal {i} DAG failed: {result}")

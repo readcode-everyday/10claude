@@ -22,12 +22,13 @@ def _config() -> dict:
     return _cfg
 
 
-def detect_major_change() -> bool:
+def detect_major_change(repo_root: Path = None) -> bool:
     """Return True if git diff stats exceed configured thresholds."""
+    root = repo_root or REPO_ROOT
     try:
         result = subprocess.run(
             ["git", "diff", "--stat", "HEAD"],
-            capture_output=True, text=True, cwd=REPO_ROOT
+            capture_output=True, text=True, cwd=root
         )
         diff = result.stdout
         cfg = _config()["thresholds"]
@@ -55,11 +56,12 @@ def detect_major_change() -> bool:
         return False
 
 
-def checkpoint_code(msg: str):
+def checkpoint_code(msg: str, repo_root: Path = None):
     """Commit all changes in the repo as a checkpoint."""
+    root = repo_root or REPO_ROOT
     try:
-        subprocess.run(["git", "add", "-A"], cwd=REPO_ROOT, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", msg], cwd=REPO_ROOT, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", msg], cwd=root, capture_output=True)
         log.info(f"Checkpoint committed: {msg}")
     except Exception as e:
         log.warning(f"checkpoint_code failed: {e}")

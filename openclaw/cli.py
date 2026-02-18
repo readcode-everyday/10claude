@@ -2,8 +2,9 @@
 OpenClaw Dev Manager CLI/TUI.
 Run inside the openclaw container: openclaw  (or python -m openclaw.cli)
 
-Accepts a task from the user, submits it to the queue, then streams
-daemon log lines until a result appears.
+On startup: asks whether to create a new project or continue an existing one.
+Then accepts a task, submits it to the queue with the chosen project_path,
+and streams daemon log lines until a result appears.
 """
 import json
 import sys
@@ -15,12 +16,12 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.prompt import Prompt
-    from rich.live import Live
-    from rich.spinner import Spinner
     from rich.text import Text
     _rich = True
 except ImportError:
     _rich = False
+
+from openclaw.tools.project_manager import list_projects, create_project, get_project_path
 
 QUEUE    = Path("/workspace/queue/tasks.jsonl")
 RESULTS  = Path("/workspace/results")
@@ -36,24 +37,61 @@ def _print(msg: str, style: str = ""):
         print(msg)
 
 
-def _submit(task_id: str, prompt: str):
-    task = {"id": task_id, "prompt": prompt}
+def _select_project() -> str:
+    """Interactive project selector. Returns the chosen project path as a string."""
+    projects = list_projects()
+
+    if _rich:
+        console.print("\n[bold]Projects[/bold]")
+        for i, name in enumerate(projects, 1):
+            console.print(f"  [cyan]{i}.[/cyan] {name}")
+        console.print(f"  [cyan]n.[/cyan] Create new project")
+        choice = Prompt.ask(
+            "\nSelect",
+            default="n" if not projects else "1"
+        ).strip().lower()
+    else:
+        print("\nProjects:")
+        for i, name in enumerate(projects, 1):
+            print(f"  {i}. {name}")
+        print("  n. Create new project")
+        choice = input(f"\nSelect [{('n' if not projects else '1')}]: ").strip().lower() or \
+                 ("n" if not projects else "1")
+
+    if choice == "n" or not projects:
+        if _rich:
+            name = Prompt.ask("Project name").strip()
+        else:
+            name = input("Project name: ").strip()
+        if not name:
+            _print("No project name given.", style="red")
+            sys.exit(1)
+        path = create_project(name)
+        _print(f"\n[→] Created project [bold]{name}[/bold] at {path}", style="green")
+        return str(path)
+
+    try:
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(projects):
+            raise ValueError
+        name = projects[idx]
+    except (ValueError, IndexError):
+        _print(f"Invalid selection: {choice!r}", style="red")
+        sys.exit(1)
+
+    path = get_project_path(name)
+    _print(f"\n[→] Project: [bold]{name}[/bold]", style="cyan")
+    return str(path)
+
+
+def _submit(task_id: str, prompt: str, project_path: str):
+    task = {"id": task_id, "prompt": prompt, "project_path": project_path}
     QUEUE.parent.mkdir(parents=True, exist_ok=True)
     with QUEUE.open("a") as f:
         f.write(json.dumps(task) + "\n")
 
 
-def _poll_result(task_id: str, timeout: int = 600) -> dict | None:
-    path = RESULTS / f"{task_id}.json"
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if path.exists():
-            return json.loads(path.read_text())
-        time.sleep(2)
-    return None
-
-
-def _tail_log(task_id: str, last_pos: int) -> tuple[str, int]:
+def _tail_log(task_id: str, last_pos: int) -> tuple:
     """Return new log lines mentioning task_id since last_pos."""
     if not LOG_FILE.exists():
         return "", last_pos
@@ -78,6 +116,10 @@ def main():
         print("=" * 50)
 
     try:
+        # ── Project selection ────────────────────────────────────────────────
+        project_path = _select_project()
+
+        # ── Task input ───────────────────────────────────────────────────────
         if len(sys.argv) > 1:
             prompt = " ".join(sys.argv[1:])
             _print(f"Task: {prompt}", style="dim")
@@ -93,18 +135,16 @@ def main():
 
         task_id = f"task-{uuid.uuid4().hex[:8]}"
         _print(f"\n[→] Submitting task [bold]{task_id}[/bold]", style="green")
-        _submit(task_id, prompt)
+        _submit(task_id, prompt, project_path)
         _print("[→] Task queued — waiting for daemon...\n", style="dim")
 
         log_pos = LOG_FILE.stat().st_size if LOG_FILE.exists() else 0
         start = time.time()
 
         while True:
-            # Stream relevant log lines
             new_lines, log_pos = _tail_log(task_id, log_pos)
             if new_lines:
                 for line in new_lines.splitlines():
-                    # Colour by content
                     if "[worker]" in line:
                         _print(f"  [dim cyan]{line}[/dim cyan]" if _rich else line)
                     elif "FAILED" in line or "failed" in line:
@@ -114,7 +154,6 @@ def main():
                     else:
                         _print(f"  [dim]{line}[/dim]" if _rich else line)
 
-            # Check for result
             result_path = RESULTS / f"{task_id}.json"
             if result_path.exists():
                 result = json.loads(result_path.read_text())

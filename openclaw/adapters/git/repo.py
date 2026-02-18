@@ -8,65 +8,59 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path("/workspace/repo")
-WORKTREES = Path("/workspace/worktrees")
+REPO_ROOT = Path("/workspace/repo")       # legacy fallback
+WORKTREES = Path("/workspace/worktrees")  # shared worktree staging area
 
 
-def ensure_repo():
-    """Bootstrap a bare git repo at /workspace/repo if one doesn't exist."""
-    if (REPO_ROOT / ".git").exists():
+def ensure_repo(repo_root: Path = None):
+    """Bootstrap a bare git repo at repo_root if one doesn't exist."""
+    root = repo_root or REPO_ROOT
+    if (root / ".git").exists():
         return
-    REPO_ROOT.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init"], cwd=REPO_ROOT, check=True, capture_output=True)
-    # Need at least one commit for worktree add to work
-    (REPO_ROOT / ".gitkeep").touch()
-    subprocess.run(["git", "add", ".gitkeep"], cwd=REPO_ROOT, check=True, capture_output=True)
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    (root / ".gitkeep").touch()
+    subprocess.run(["git", "add", ".gitkeep"], cwd=root, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "init"],
-        cwd=REPO_ROOT, check=True, capture_output=True
+        cwd=root, check=True, capture_output=True
     )
-    log.info(f"Initialized git repo at {REPO_ROOT}")
+    log.info(f"Initialized git repo at {root}")
 
 
-def create_worktree(name: str) -> Path:
+def create_worktree(name: str, repo_root: Path = None) -> Path:
     """Create an isolated git worktree for a worker. Returns the path."""
-    ensure_repo()
+    root = repo_root or REPO_ROOT
+    ensure_repo(root)
     WORKTREES.mkdir(parents=True, exist_ok=True)
     wt_path = WORKTREES / name
 
-    # Remove stale worktree if it exists
     if wt_path.exists():
         subprocess.run(
             ["git", "worktree", "remove", str(wt_path), "--force"],
-            cwd=REPO_ROOT, capture_output=True
+            cwd=root, capture_output=True
         )
 
     result = subprocess.run(
         ["git", "worktree", "add", "-b", name, str(wt_path)],
-        cwd=REPO_ROOT, capture_output=True, text=True
+        cwd=root, capture_output=True, text=True
     )
     if result.returncode != 0:
-        log.warning(f"worktree add failed: {result.stderr} — falling back to REPO_ROOT")
-        return REPO_ROOT
+        log.warning(f"worktree add failed: {result.stderr} — falling back to repo root")
+        return root
 
     log.info(f"Created worktree: {wt_path}")
     return wt_path
 
 
-def remove_worktree(name: str):
+def remove_worktree(name: str, repo_root: Path = None):
     """Clean up a worktree after a worker finishes."""
+    root = repo_root or REPO_ROOT
     wt_path = WORKTREES / name
     subprocess.run(
         ["git", "worktree", "remove", str(wt_path), "--force"],
-        cwd=REPO_ROOT, capture_output=True
+        cwd=root, capture_output=True
     )
-    # Also prune stale refs
-    subprocess.run(["git", "worktree", "prune"], cwd=REPO_ROOT, capture_output=True)
-    # Delete the branch
-    subprocess.run(
-        ["git", "branch", "-D", name],
-        cwd=REPO_ROOT, capture_output=True
-    )
+    subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True)
+    subprocess.run(["git", "branch", "-D", name], cwd=root, capture_output=True)
     log.info(f"Removed worktree: {wt_path}")
-
-

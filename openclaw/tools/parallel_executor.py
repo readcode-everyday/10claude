@@ -110,8 +110,10 @@ def execute_dag_parallel(task: Dict[str, Any], dag: Dict[str, Any]) -> Dict[str,
     all_ok = all(completed.values())
     if all_ok:
         log.info("DAG complete — checking for major change")
-        if detect_major_change():
-            checkpoint_code("auto-checkpoint: post-DAG major change")
+        _pp = task.get("project_path")
+        repo_root = Path(_pp) if _pp else None
+        if detect_major_change(repo_root):
+            checkpoint_code("auto-checkpoint: post-DAG major change", repo_root)
             snapshot_workspace()
 
     return {"success": all_ok, "nodes": completed}

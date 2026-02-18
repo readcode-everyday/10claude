@@ -7,7 +7,7 @@ import logging
 import time
 from pathlib import Path
 
-from openclaw.adapters.git.repo import ensure_repo
+from openclaw.adapters.git.repo import ensure_repo, REPO_ROOT
 from openclaw.tools.long_horizon_loop import execute_long_horizon
 
 # ── Logging setup ────────────────────────────────────────────────────────────
@@ -53,7 +53,9 @@ def _save_result(task_id: str, data: dict):
 
 def _run_task(task: dict):
     task_id = task.get("id", str(int(time.time())))
-    log.info(f"─── Task start | id='{task_id}' prompt='{task.get('prompt','')[:80]}' ───")
+    project_path = Path(task["project_path"]) if task.get("project_path") else REPO_ROOT
+    ensure_repo(project_path)
+    log.info(f"─── Task start | id='{task_id}' project='{project_path.name}' prompt='{task.get('prompt','')[:80]}' ───")
     result = execute_long_horizon(task)
     _save_result(task_id, result)
     status = "SUCCESS" if result.get("success") else "FAILED"
@@ -62,7 +64,6 @@ def _run_task(task: dict):
 
 def main():
     log.info("Runtime daemon starting")
-    ensure_repo()
 
     seen: set = set()
 

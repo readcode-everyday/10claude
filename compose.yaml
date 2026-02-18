@@ -1,5 +1,23 @@
 services:
 
+  caddy:
+    container_name: caddy
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ~/10claude/config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_certs:/config
+    environment:
+      - UI_USER=${UI_USER}
+      - UI_PASS_HASH=${UI_PASS_HASH}
+    depends_on:
+      - openclaw
+
+
   openclaw:
     container_name: openclaw
     build: .
@@ -63,3 +81,8 @@ services:
       "
 
     restart: unless-stopped
+
+
+volumes:
+  caddy_data:
+  caddy_certs:

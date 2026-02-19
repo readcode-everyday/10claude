@@ -166,8 +166,10 @@ improves over time.
 └── .env                    # Secrets (API keys)
 ```
 
-> **Persistence rule:** if data is not inside `/workspace`, it is not truly
-> persistent. Containers are disposable; the filesystem is not.
+> **Persistence rule:** containers are disposable — only data written to a
+> host-mounted path survives a restart. Mounted paths: `/workspace`, `/logs`,
+> `/backups`, `/app/openclaw`, `/app/config`. Anything written elsewhere
+> (e.g. `/tmp`) is lost on container restart.
 
 ---
 

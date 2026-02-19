@@ -116,7 +116,7 @@ Both agents run inside the same openclaw gateway process. Memory and sessions ar
 **Image:** `openclaw-sandbox:latest` (built locally from `Dockerfile.sandbox`)
 **Base:** `debian:bookworm-slim` + git + Node.js + `@anthropic-ai/claude-code`
 **Lifetime:** One per sub-agent session (`scope: "session"`); auto-destroyed on session end
-**Network:** `host` — workers need direct Anthropic API access
+**Network:** `bridge` — workers reach the Anthropic API via Docker's default bridge; `host` mode is blocked by openclaw's sandbox security policy (since v2026.2.17)
 **Why Docker:** `claude --dangerously-skip-permissions` requires container filesystem scope to limit blast radius
 
 **Bind mounts into each sandbox container:**
@@ -304,7 +304,7 @@ openclaw gateway configuration. Managed partly by openclaw itself (do not hand-e
           "mode": "non-main", "scope": "session",
           "docker": {
             "image": "openclaw-sandbox:latest",
-            "network": "host",
+            "network": "bridge",
             "binds": ["...projects:rw", "...worktrees:rw", "...claude:rw"],
             "setupCommand": "git config --global user.email ..."
           }
@@ -503,7 +503,7 @@ Primary config for the execution engine. Key fields:
 | `agents.defaults.subagents.maxConcurrent` | `3` | Max parallel coding workers per task |
 | `agents.list[dev].sandbox.mode` | `non-main` | Sandbox all sub-agent (worker) sessions |
 | `agents.list[dev].sandbox.scope` | `session` | One container per worker session |
-| `agents.list[dev].sandbox.docker.network` | `host` | Workers need Anthropic API access |
+| `agents.list[dev].sandbox.docker.network` | `bridge` | Internet access for Anthropic API (`host` blocked by openclaw security policy since v2026.2.17) |
 
 After editing, restart the gateway:
 ```bash

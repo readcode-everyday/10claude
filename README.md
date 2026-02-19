@@ -345,24 +345,15 @@ to avoid duplication.
 ```
 ~/10claude/                              ← mounted as /app in Docker containers
 │
-├── openclaw/                            # Python source (status-ui + kept utilities)
+├── openclaw/                            # Python source (status-ui + utilities)
 │   ├── tools/
 │   │   ├── status_ui.py                 # FastAPI kanban UI + openclaw proxy
-│   │   ├── goal_evaluator.py            # done_when criterion evaluation (kept)
-│   │   ├── progress_memory.py           # git checkpoint logic (kept)
-│   │   ├── project_manager.py           # create/list projects (kept)
-│   │   └── world_model.py              # persistent world model JSON (kept)
-│   ├── adapters/
-│   │   └── coder/codex_cli.py          # Codex fallback (kept)
+│   │   └── project_manager.py           # create/list projects
 │   └── static/index.html               # Kanban web UI (single HTML file)
 │
 ├── config/                              # mounted read-only at /app/config
 │   ├── CLAUDE.md                        # agent rules → committed into every project repo
-│   ├── Caddyfile                        # reverse proxy config
-│   ├── architecture.yaml               # protected paths list
-│   ├── coding_agents.yaml              # code engine preference (claude / codex)
-│   ├── major_change.yaml               # git checkpoint thresholds
-│   └── runtime_parallelism.yaml        # worker count (reference only — now in openclaw.json)
+│   └── Caddyfile                        # reverse proxy config
 │
 ├── workspace/                           # ALL runtime state (back this up)
 │   ├── queue/

@@ -18,11 +18,12 @@
 #   1. Install system dependencies (Docker, Node.js, npm)
 #   2. Install Claude CLI and openclaw npm packages
 #   3. Validate .env and workspace state
-#   4. Install openclaw gateway as a systemd user service
-#   5. Build Docker images (status-ui, sandbox)
-#   6. Start Docker containers
-#   7. Smoke-test all components
-#   8. Remind about the one step that can't be automated (claude auth login)
+#   4. Inject required openclaw.json config keys (gateway.tools.allow, etc.)
+#   5. Install openclaw gateway as a systemd user service
+#   6. Build Docker images (status-ui, sandbox)
+#   7. Start Docker containers
+#   8. Smoke-test all components
+#   9. Remind about the one step that can't be automated (claude auth login)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -146,7 +147,9 @@ mkdir -p \
     "$ROOT/workspace/worktrees" \
     "$ROOT/workspace/memory" \
     "$ROOT/logs" \
-    "$ROOT/backups"
+    "$ROOT/backups" \
+    "$HOME/.openclaw/workspace/personal/memory" \
+    "$HOME/.openclaw/workspace/dev/memory"
 ok "Workspace directories ready"
 
 # SSH keys
@@ -159,7 +162,32 @@ else
     warn "Either copy keys from old machine or generate new ones: ssh-keygen -t ed25519"
 fi
 
-# ── 3. openclaw gateway (systemd) ─────────────────────────────────────────────
+# ── 3. openclaw.json — inject required config keys ────────────────────────────
+step "openclaw.json required config"
+
+# The onboarding wizard doesn't set these. Inject them now without clobbering
+# other settings (e.g. auth token, agent list, Telegram config).
+python3 - "$HOME/.openclaw/openclaw.json" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+cfg = json.loads(open(path).read())
+
+gw = cfg.setdefault("gateway", {})
+allow = gw.setdefault("tools", {}).setdefault("allow", [])
+for tool in ["sessions_send", "sessions_spawn"]:
+    if tool not in allow:
+        allow.append(tool)
+
+tools = cfg.setdefault("tools", {})
+tools.setdefault("sessions", {})["visibility"] = "all"
+tools.setdefault("agentToAgent", {})["enabled"] = True
+
+open(path, "w").write(json.dumps(cfg, indent=2))
+print("  gateway.tools.allow, tools.sessions.visibility, tools.agentToAgent — OK")
+PYEOF
+ok "openclaw.json required keys present"
+
+# ── 4. openclaw gateway (systemd) ─────────────────────────────────────────────
 step "openclaw gateway service"
 
 # Re-issue the gateway install (it writes a fresh systemd unit with current paths)
@@ -186,7 +214,7 @@ else
     die "openclaw gateway failed to start — check: journalctl --user -u openclaw-gateway -n 30"
 fi
 
-# ── 4. Docker images ──────────────────────────────────────────────────────────
+# ── 5. Docker images ──────────────────────────────────────────────────────────
 step "Docker images"
 
 info "Building status-ui image..."
@@ -198,17 +226,17 @@ docker build -t openclaw-sandbox:latest -f "$ROOT/Dockerfile.sandbox" "$ROOT" \
     2>&1 | grep -E "(Step|CACHED|DONE|error|ERROR|Successfully built)" || true
 ok "openclaw-sandbox:latest built"
 
-# ── 5. Docker containers ──────────────────────────────────────────────────────
+# ── 6. Docker containers ──────────────────────────────────────────────────────
 step "Docker containers"
 
-# Stop any leftover containers from old machine names
-docker stop openclaw runtime-daemon 2>/dev/null && docker rm openclaw runtime-daemon 2>/dev/null || true
+# Stop any leftover containers from old machine names (ignore errors if they don't exist)
+docker stop openclaw runtime-daemon 2>/dev/null; docker rm openclaw runtime-daemon 2>/dev/null; true
 
 info "Starting containers..."
 docker compose up -d --remove-orphans
 ok "Containers started"
 
-# ── 6. Smoke tests ────────────────────────────────────────────────────────────
+# ── 7. Smoke tests ────────────────────────────────────────────────────────────
 step "Smoke tests"
 
 # status-ui health
@@ -235,7 +263,7 @@ openclaw gateway health &>/dev/null && ok "openclaw gateway: OK" || warn "opencl
 echo ""
 docker compose ps --format "  {{.Name}}  {{.Status}}  {{.Ports}}"
 
-# ── 7. Summary ────────────────────────────────────────────────────────────────
+# ── 8. Summary ────────────────────────────────────────────────────────────────
 echo ""
 echo "  ════════════════════════════════════════════════════════════"
 echo "  Migration complete on $(hostname)"

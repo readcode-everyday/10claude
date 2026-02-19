@@ -34,13 +34,14 @@ You (browser)
       │  HTTP :18888
       ▼
    [ status-ui ]  — FastAPI + Kanban UI  (Docker, permanent)
-      │  POST /tools/invoke  →  sessions_spawn
+      │  POST /tools/invoke  →  sessions_send  →  agent:dev:main
+      │  (synchronous: blocks per-task background thread up to 10 min for reply)
       │
       │  HTTP :18789
       ▼
    [ openclaw gateway ]  — AI messaging gateway  (native systemd, permanent)
       │
-      │  sandbox containers spawned on demand
+      │  agent:dev:main  receives task message, spawns sub-agents as needed
       ▼
    [ openclaw-sandbox ]  — ephemeral Docker containers  (one per coding worker)
       │  runs: claude --dangerously-skip-permissions -p '<task>'
@@ -145,9 +146,11 @@ docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox ~/10claude/
 **What it does:**
 - Serves the Kanban board (`/`) and REST API (`/api/*`)
 - Stores task metadata in `workspace/queue/task_store.json`
-- Calls openclaw `POST :18789/tools/invoke` with `sessions_spawn` to dispatch tasks to the dev agent
-- Polls openclaw `sessions_list` every 15 s to detect task completion
-- Writes outcomes to `workspace/results/{task_id}.json`
+- Dispatches each task to `agent:dev:main` via `sessions_send` (synchronous call — blocks up to 10 min waiting for the agent's reply)
+- Each task runs in its own background thread so the HTTP request returns immediately with `in_progress`
+- Task marked `completed` or `failed` when the agent actually replies — no false positives from polling
+- Stale-task watchdog: tasks stuck `in_progress` for >20 min after a service restart are auto-failed
+- Writes outcomes + agent reply to `workspace/results/{task_id}.json`
 - Generates plans using the LLM before task confirmation (plan/review/confirm flow)
 
 **API endpoints:**
@@ -248,7 +251,7 @@ Master task registry. All tasks live here from creation through completion.
       "Which storage for the preference?": "localStorage (Recommended)"
     },
     "depends_on": null,
-    "openclaw_session_key": "agent:dev:subagent:f3a1b2c4-...",
+    "openclaw_session_key": "agent:dev:main",
     "error": null
   }
 }
@@ -261,22 +264,25 @@ Master task registry. All tasks live here from creation through completion.
 | `plan` | string | Markdown plan generated before confirmation |
 | `questions` | array | Clarifying questions shown in UI |
 | `answers` | object | User's answers to questions |
-| `openclaw_session_key` | string | Sub-agent session key (set after dispatch, used for status polling) |
+| `openclaw_session_key` | string | Always `"agent:dev:main"` — the permanent dev agent session that receives tasks |
 | `depends_on` | string\|null | ID of prerequisite task |
 
 ---
 
 ### `workspace/results/{task_id}.json`
-Written by status-ui when a task completes (polled from openclaw session status).
+Written by status-ui when the agent replies to the `sessions_send` call.
 
 ```json
 {
   "task_id": "task-abc12345",
   "success": true,
-  "session_key": "agent:dev:subagent:f3a1b2c4-...",
+  "reply": "Done ✅ Added greet() function, committed as e865184",
+  "session_key": "agent:dev:main",
   "completed_at": "2026-02-19T10:45:00.000000"
 }
 ```
+
+The `reply` field contains the dev agent's actual response — visible in the Kanban UI when you expand a completed task.
 
 ---
 
@@ -314,6 +320,24 @@ openclaw gateway configuration. Managed partly by openclaw itself (do not hand-e
   }
 }
 ```
+
+**Required fields that enable status-ui → dev agent dispatch** (must be present or tasks will fail):
+
+```json
+{
+  "gateway": {
+    "tools": { "allow": ["sessions_send", "sessions_spawn"] }
+  },
+  "tools": {
+    "sessions": { "visibility": "all" },
+    "agentToAgent": { "enabled": true }
+  }
+}
+```
+
+- `gateway.tools.allow` — whitelist `sessions_send` for HTTP `/tools/invoke` calls (blocked by default)
+- `tools.sessions.visibility: "all"` — allow status-ui to address sessions in other agents
+- `tools.agentToAgent.enabled: true` — enable agent-to-agent message routing
 
 Key fields to change:
 - `agents.defaults.subagents.maxConcurrent` — max parallel coding workers (default: 3)
@@ -500,6 +524,9 @@ Primary config for the execution engine. Key fields:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `gateway.port` | `18789` | Gateway WebSocket + HTTP port |
+| `gateway.tools.allow` | `[]` | Tools allowed via HTTP `/tools/invoke`; must include `"sessions_send"` |
+| `tools.sessions.visibility` | `"self"` | Must be `"all"` for status-ui to reach dev agent sessions |
+| `tools.agentToAgent.enabled` | `false` | Must be `true` for agent-to-agent message routing |
 | `agents.defaults.subagents.maxConcurrent` | `3` | Max parallel coding workers per task |
 | `agents.list[dev].sandbox.mode` | `non-main` | Sandbox all sub-agent (worker) sessions |
 | `agents.list[dev].sandbox.scope` | `session` | One container per worker session |
@@ -690,3 +717,7 @@ grep task-abc123 ~/10claude/logs/daemon.log
 | openclaw gateway crashes on start | `gateway.mode` not set | Ensure `openclaw.json` has `"gateway": {"mode": "local", ...}` |
 | Sandbox container fails to start | Image not built | `docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox .` |
 | `maxConcurrent` schema error | Wrong config location | Field belongs in `agents.defaults.subagents`, not per-agent |
+| Tasks complete instantly without doing any work | `sessions_send` misconfigured | Verify `openclaw.json` has `gateway.tools.allow: ["sessions_send"]`, `tools.sessions.visibility: "all"`, and `tools.agentToAgent: {"enabled": true}` |
+| Tasks stuck in `in_progress` after service restart | Background threads lost on restart | Stale watchdog auto-fails them after 20 min; manually cancel and retry sooner |
+| `sessions_send` error: "Either sessionKey or label is required" | Wrong arg field name | Use `"sessionKey": "agent:dev:main"` in the args (not `"to"`) |
+| Plan generation unavailable | `ANTHROPIC_API_KEY` wrong type | OAuth tokens (`sk-ant-oat01-…`) are not accepted; set a standard API key (`sk-ant-api03-…`) in `.env` |

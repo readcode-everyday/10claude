@@ -63,6 +63,7 @@ mkdir -p \
     workspace/results \
     workspace/projects \
     workspace/worktrees \
+    workspace/memory \
     logs \
     backups
 ok "Directories ready"
@@ -95,7 +96,44 @@ else
     grep -q "REPLACE_ME" .env && die ".env still has placeholder values — edit it first"
 fi
 
-# ── 4. openclaw gateway (systemd) ────────────────────────────────────────────
+# ── 4. openclaw.json — verify required config keys exist ─────────────────────
+echo ""
+echo "Checking ~/.openclaw/openclaw.json..."
+
+OPENCLAW_CFG="$HOME/.openclaw/openclaw.json"
+if [ ! -f "$OPENCLAW_CFG" ]; then
+    warn "~/.openclaw/openclaw.json not found."
+    warn "Run the openclaw onboarding wizard first:"
+    warn "  openclaw configure"
+    warn "Then re-run this script."
+    exit 1
+fi
+
+# Inject required keys that the openclaw wizard doesn't set automatically.
+# Uses python3 to merge without clobbering existing values.
+python3 - "$OPENCLAW_CFG" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+cfg = json.loads(open(path).read())
+
+# gateway.tools.allow — whitelist sessions_send for HTTP /tools/invoke
+gw = cfg.setdefault("gateway", {})
+allow = gw.setdefault("tools", {}).setdefault("allow", [])
+for tool in ["sessions_send", "sessions_spawn"]:
+    if tool not in allow:
+        allow.append(tool)
+
+# top-level tools — cross-agent visibility and routing
+tools = cfg.setdefault("tools", {})
+tools.setdefault("sessions", {})["visibility"] = "all"
+tools.setdefault("agentToAgent", {})["enabled"] = True
+
+open(path, "w").write(json.dumps(cfg, indent=2))
+print("  gateway.tools.allow, tools.sessions.visibility, tools.agentToAgent — OK")
+PYEOF
+ok "openclaw.json required keys present"
+
+# ── 5. openclaw gateway (systemd) ────────────────────────────────────────────
 echo ""
 echo "Installing openclaw gateway service..."
 
@@ -113,7 +151,7 @@ openclaw gateway health &>/dev/null \
     && ok "openclaw gateway running on :18789" \
     || warn "openclaw gateway may not be ready — check: journalctl --user -u openclaw-gateway -n 20"
 
-# ── 5. Docker images + containers ────────────────────────────────────────────
+# ── 6. Docker images + containers ────────────────────────────────────────────
 echo ""
 echo "Building Docker images..."
 docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox . \
@@ -125,7 +163,7 @@ echo ""
 echo "Starting containers..."
 docker compose up -d --remove-orphans
 
-# ── 6. Smoke test ─────────────────────────────────────────────────────────────
+# ── 7. Smoke test ─────────────────────────────────────────────────────────────
 echo ""
 echo "Waiting for status-ui..."
 for i in $(seq 1 30); do
@@ -137,7 +175,7 @@ curl -sf http://localhost:18888/api/health >/dev/null 2>&1 \
     && ok "status-ui ready: $(curl -s http://localhost:18888/api/health)" \
     || true
 
-# ── 7. Summary ────────────────────────────────────────────────────────────────
+# ── 8. Summary ────────────────────────────────────────────────────────────────
 echo ""
 echo "  ════════════════════════════════════════════════════"
 echo "  OpenClaw is running on $(hostname)"

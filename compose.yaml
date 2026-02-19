@@ -46,6 +46,12 @@ services:
     ports:
       - "18888:18888"
 
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
     restart: unless-stopped
 
 
@@ -73,6 +79,12 @@ services:
         pip install -q -e /app &&
         python -u -m openclaw.tools.runtime_engine
       "
+
+    deploy:
+      resources:
+        limits:
+          cpus: "15"
+          memory: 20G
 
     restart: unless-stopped
 

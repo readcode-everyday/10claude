@@ -525,33 +525,6 @@ Committed into every new project repo. Claude Code reads it automatically. Contr
 - Parallel worktree conventions
 - PROGRESS.md lessons-learned format
 
-### `config/architecture.yaml` — protected paths
-
-```yaml
-protected_paths:
-  - "/app/config"
-  - "/app/workspace/memory"
-  - "/app/workspace/semantic_memory"
-  - "/var/run/docker.sock"
-```
-
-Referenced in `AGENTS.md` — the dev agent will not write to these paths.
-
-### `config/major_change.yaml` — checkpoint thresholds
-
-```yaml
-thresholds:
-  files_changed: 5
-  insertions: 50
-  deletions: 20
-always_major:
-  - "config/"
-  - "database schema"
-  - "migration"
-```
-
-Referenced in `AGENTS.md` — when crossed, the agent commits and snapshots before continuing.
-
 ### `.env` — secrets
 
 Never committed. Contains API keys and UI credentials.

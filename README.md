@@ -8,55 +8,408 @@ You describe what you want done; the system plans, executes, and evaluates the w
 ## Table of Contents
 
 1. [Architecture](#architecture)
-2. [Prerequisites](#prerequisites)
-3. [Fresh Install](#fresh-install)
-4. [Configuration](#configuration)
-5. [Web UI & Remote Access](#web-ui--remote-access)
-6. [How to Use](#how-to-use)
-7. [Directory Structure](#directory-structure)
-8. [Containers](#containers)
-9. [Recovery & Restore](#recovery--restore)
-10. [Troubleshooting](#troubleshooting)
+2. [Components](#components)
+3. [Data Formats](#data-formats)
+4. [Directory Structure](#directory-structure)
+5. [Prerequisites](#prerequisites)
+6. [Fresh Install](#fresh-install)
+7. [Configuration](#configuration)
+8. [Web UI & Remote Access](#web-ui--remote-access)
+9. [How to Use](#how-to-use)
+10. [Migration to a New Machine](#migration-to-a-new-machine)
+11. [Recovery & Restore](#recovery--restore)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Architecture
 
 ```
-You (browser / CLI)
+You (browser)
       │
       │  HTTPS :443
       ▼
-   [ Caddy ]  — TLS termination + basic auth
+   [ Caddy ]  — TLS termination + basic auth  (Docker, permanent)
       │
       │  HTTP :18888
       ▼
-   [ openclaw ]  — FastAPI control plane + Kanban UI
-      │  writes task to filesystem queue
+   [ status-ui ]  — FastAPI + Kanban UI  (Docker, permanent)
+      │  POST /tools/invoke  →  sessions_spawn
+      │
+      │  HTTP :18789
       ▼
-   /app/workspace/queue/tasks.jsonl
+   [ openclaw gateway ]  — AI messaging gateway  (native systemd, permanent)
       │
-      │  polls every 3 s
+      │  sandbox containers spawned on demand
       ▼
-   [ runtime-daemon ]  — execution plane
-      │
-      ├─ hierarchical_planner  → sub-goals with done_when criteria
-      │
-      └─ for each sub-goal: ◄──────────────────────────────┐
-            │                                                │
-            ├─ dag_planner      → DAG of parallel tasks     │
-            ├─ parallel_executor → up to 3 workers          │
-            │     each worker gets isolated git worktree    │
-            │     each worker invokes Claude CLI            │
-            ├─ goal_evaluator   → did done_when pass?       │
-            ├─ if major change  → git checkpoint + snapshot │
-            └─ advance to next sub-goal ─────────────────────┘
+   [ openclaw-sandbox ]  — ephemeral Docker containers  (one per coding worker)
+      │  runs: claude --dangerously-skip-permissions -p '<task>'
+      │  mounts: workspace/projects, workspace/worktrees, ~/.claude
       │
       ▼
-   /app/workspace/results/{task_id}.json
+   workspace/results/{task_id}.json
 ```
 
-**Key design principle:** containers are disposable — all state lives in `~/10claude` on the host, mounted as `/app` inside every container. Nothing is lost on restart.
+**Key design principle:** all state lives on the host (`~/10claude/` and `~/.openclaw/`).
+Containers are disposable — nothing is lost on restart or rebuild.
+
+---
+
+## Components
+
+### 1. openclaw gateway
+**What it is:** The [openclaw](https://openclaw.ai) npm package — an AI messaging and agent orchestration gateway. This is the execution engine that replaced the old custom Python `runtime-daemon`.
+
+**Location:** Native host process, not in Docker.
+**Binary:** `~/.npm-global/bin/openclaw`
+**Config:** `~/.openclaw/openclaw.json`
+**Managed by:** systemd user service `openclaw-gateway`
+**Port:** 18789 (WebSocket + HTTP multiplex)
+
+**What it provides natively (no custom code needed):**
+- **Agent sessions** — isolated conversation contexts per task, each with its own system prompt, memory, and tool access
+- **Sub-agent spawning** (`sessions_spawn` tool) — spawns parallel background workers, up to `maxConcurrent` at once; workers announce results back when done
+- **Sandbox containers** — runs tool execution inside Docker containers to limit filesystem blast radius when using `--dangerously-skip-permissions`
+- **Memory system** — hybrid BM25 + vector search over plain Markdown daily logs, SQLite index per agent, auto-maintained `MEMORY.md` summary
+- **Workspace files** — each agent reads `AGENTS.md` (rules), `SOUL.md` (identity), `MEMORY.md` (summary) from its workspace dir on every session
+- **HTTP tool invoke API** — `POST :18789/tools/invoke` lets external code (status-ui) call any gateway tool directly
+- **Multi-agent routing** — single gateway process hosts multiple isolated agents, each with its own workspace and memory
+
+**Service management:**
+```bash
+systemctl --user status openclaw-gateway
+systemctl --user restart openclaw-gateway
+journalctl --user -u openclaw-gateway -f
+openclaw gateway health
+```
+
+---
+
+### 2. Two agents: `personal` and `dev`
+
+Both agents run inside the same openclaw gateway process. Memory and sessions are fully isolated per agent.
+
+#### `personal` agent
+- **Purpose:** General-purpose personal assistant
+- **Sandbox:** off (runs tools on host)
+- **Workspace:** `~/.openclaw/workspace/personal/`
+
+#### `dev` agent
+- **Purpose:** Autonomous software engineering — receives tasks from status-ui, plans, spawns coding workers, evaluates results
+- **Sandbox:** `non-main` mode — all sub-agent sessions run inside Docker sandbox containers
+- **Workspace:** `~/.openclaw/workspace/dev/`
+
+**Agent workspace files** (read by the LLM on every session):
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Rules: code engine, worktree management, checkpointing thresholds, protected paths, conflict/test failure flows |
+| `SOUL.md` | Agent identity and purpose |
+| `MEMORY.md` | Auto-maintained rolling summary of past experience (openclaw writes this) |
+| `memory/YYYY-MM-DD.md` | Daily memory logs — append-only, written by the agent during sessions |
+
+---
+
+### 3. Sandbox containers (`openclaw-sandbox:latest`)
+**What it is:** Ephemeral Docker containers that run one coding worker each. Destroyed when the session ends.
+
+**Image:** `openclaw-sandbox:latest` (built locally from `Dockerfile.sandbox`)
+**Base:** `debian:bookworm-slim` + git + Node.js + `@anthropic-ai/claude-code`
+**Lifetime:** One per sub-agent session (`scope: "session"`); auto-destroyed on session end
+**Network:** `host` — workers need direct Anthropic API access
+**Why Docker:** `claude --dangerously-skip-permissions` requires container filesystem scope to limit blast radius
+
+**Bind mounts into each sandbox container:**
+
+| Host path | Container path | Mode | Purpose |
+|-----------|---------------|------|---------|
+| `~/10claude/workspace/projects` | `/app/workspace/projects` | `rw` | Project git repos |
+| `~/10claude/workspace/worktrees` | `/app/workspace/worktrees` | `rw` | Per-worker git worktrees |
+| `~/.claude` | `/root/.claude` | `rw` | Claude CLI auth credentials |
+
+**Build:**
+```bash
+docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox ~/10claude/
+```
+
+---
+
+### 4. status-ui
+**What it is:** FastAPI server that provides the Kanban web UI and acts as a thin proxy between the browser and the openclaw gateway.
+
+**Location:** Docker container `status-ui`
+**Port:** 18888
+**Source:** `openclaw/tools/status_ui.py` + `openclaw/static/index.html`
+**Resource limits:** 1 CPU, 512 MB RAM
+
+**What it does:**
+- Serves the Kanban board (`/`) and REST API (`/api/*`)
+- Stores task metadata in `workspace/queue/task_store.json`
+- Calls openclaw `POST :18789/tools/invoke` with `sessions_spawn` to dispatch tasks to the dev agent
+- Polls openclaw `sessions_list` every 15 s to detect task completion
+- Writes outcomes to `workspace/results/{task_id}.json`
+- Generates plans using the LLM before task confirmation (plan/review/confirm flow)
+
+**API endpoints:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/` | Kanban board HTML |
+| `GET` | `/api/tasks` | List all tasks with status |
+| `GET` | `/api/projects` | List git projects in `workspace/projects/` |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/logs?tail=N` | Last N lines of `logs/daemon.log` |
+| `POST` | `/api/plan` | Generate plan + questions, enter review state |
+| `POST` | `/api/replan/{id}` | Regenerate plan with new feedback |
+| `POST` | `/api/confirm/{id}` | Confirm plan → dispatch to openclaw |
+| `POST` | `/api/submit` | Submit task directly (no plan review) |
+| `POST` | `/api/retry/{id}` | Re-dispatch a failed task |
+| `DELETE` | `/api/tasks/{id}` | Cancel a task |
+
+**Kanban columns:**
+
+| Column | `status` value | Meaning |
+|--------|---------------|---------|
+| Review | `review` | Plan generated, awaiting confirmation |
+| Pending | `pending` | Confirmed, not yet dispatched |
+| In Dev | `in_progress` | Dispatched to openclaw, worker running |
+| Done | `completed` | Worker finished successfully |
+| Failed | `failed` | Worker errored or dispatch failed |
+| Cancelled | `cancelled` | Manually cancelled |
+
+---
+
+### 5. Caddy
+**What it is:** Reverse proxy for TLS termination and basic auth.
+
+**Location:** Docker container `caddy`
+**Image:** `caddy:2-alpine` (pulled from Docker Hub, not built locally)
+**Config:** `config/Caddyfile` (mounted read-only)
+**Ports:** 80 (redirects to HTTPS), 443 (proxied to status-ui after auth)
+
+Caddy only knows about `status-ui:18888`. The openclaw gateway port (18789) is not exposed through Caddy — it is loopback-only on the host.
+
+---
+
+### 6. scripts/worktree.sh
+**What it is:** Shell helper that creates and removes git worktrees for parallel coding workers. Replaces the old Python `repo.py`.
+
+**Location:** `scripts/worktree.sh`
+**Called by:** Dev agent instructions (via bash tool inside sandbox containers)
+
+```bash
+# Create an isolated worktree for a worker
+scripts/worktree.sh create <worker-id> /app/workspace/projects/<project>
+# → creates /app/workspace/worktrees/<worker-id> on branch worker/<worker-id>
+# → prints the worktree path
+
+# Remove when done
+scripts/worktree.sh remove <worker-id> /app/workspace/projects/<project>
+```
+
+---
+
+### 7. config/CLAUDE.md
+**What it is:** Agent rules that get committed into every new project repo. Claude Code reads it automatically when running in the project directory.
+
+**Location:** `config/CLAUDE.md`
+**Injected into:** every `workspace/projects/<name>/` repo on creation
+
+Contains:
+- Rebase failure flow (unstaged changes → conflicts → resolution steps)
+- Test failure flow (run → analyze → fix → re-run → commit)
+- Parallel worktree rules (no symlinks, edit PROGRESS.md via `git -C <repo-root>`)
+- Lessons-learned format for PROGRESS.md (problem, solution, commit ID)
+
+---
+
+## Data Formats
+
+### `workspace/queue/task_store.json`
+Master task registry. All tasks live here from creation through completion.
+
+```json
+{
+  "task-abc12345": {
+    "id": "task-abc12345",
+    "prompt": "Add a dark mode toggle to the settings page",
+    "project_path": "my-project",
+    "status": "in_progress",
+    "created_at": "2026-02-19T10:00:00.123456",
+    "confirmed_at": "2026-02-19T10:01:30.000000",
+    "plan": "# Implementation Plan\n\n1. ...",
+    "questions": [
+      {
+        "question": "Which storage for the preference?",
+        "options": ["localStorage (Recommended)", "User DB column"]
+      }
+    ],
+    "answers": {
+      "Which storage for the preference?": "localStorage (Recommended)"
+    },
+    "depends_on": null,
+    "openclaw_session_key": "agent:dev:subagent:f3a1b2c4-...",
+    "error": null
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | `task-<8 hex chars>` |
+| `status` | string | `review` → `pending` → `in_progress` → `completed` / `failed` / `cancelled` |
+| `plan` | string | Markdown plan generated before confirmation |
+| `questions` | array | Clarifying questions shown in UI |
+| `answers` | object | User's answers to questions |
+| `openclaw_session_key` | string | Sub-agent session key (set after dispatch, used for status polling) |
+| `depends_on` | string\|null | ID of prerequisite task |
+
+---
+
+### `workspace/results/{task_id}.json`
+Written by status-ui when a task completes (polled from openclaw session status).
+
+```json
+{
+  "task_id": "task-abc12345",
+  "success": true,
+  "session_key": "agent:dev:subagent:f3a1b2c4-...",
+  "completed_at": "2026-02-19T10:45:00.000000"
+}
+```
+
+---
+
+### `~/.openclaw/openclaw.json`
+openclaw gateway configuration. Managed partly by openclaw itself (do not hand-edit the `meta` or `gateway.auth.token` fields).
+
+```json
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "auth": { "mode": "token", "token": "<auto-generated>" }
+  },
+  "agents": {
+    "defaults": {
+      "subagents": { "maxConcurrent": 3 },
+      "sandbox": { "mode": "off" }
+    },
+    "list": [
+      { "id": "personal", "name": "Personal Assistant",
+        "workspace": "~/.openclaw/workspace/personal" },
+      { "id": "dev", "name": "Dev Manager",
+        "workspace": "~/.openclaw/workspace/dev",
+        "sandbox": {
+          "mode": "non-main", "scope": "session",
+          "docker": {
+            "image": "openclaw-sandbox:latest",
+            "network": "host",
+            "binds": ["...projects:rw", "...worktrees:rw", "...claude:rw"],
+            "setupCommand": "git config --global user.email ..."
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+Key fields to change:
+- `agents.defaults.subagents.maxConcurrent` — max parallel coding workers (default: 3)
+- `gateway.port` — gateway port (default: 18789); also update status-ui env var if changed
+- `agents.list[dev].sandbox.docker.binds` — update host paths if `~/10claude` moves
+
+---
+
+### `~/.openclaw/workspace/dev/memory/YYYY-MM-DD.md`
+Daily memory log written by the dev agent during sessions. Append-only plain Markdown.
+openclaw indexes these with BM25 + vector search (SQLite-vec at `~/.openclaw/agents/dev/agent/*.sqlite`).
+
+```markdown
+## 2026-02-19
+
+### Task task-abc12345
+Completed dark mode toggle. Used localStorage key `theme`. CSS variable approach
+worked cleanly. Commit: a1b2c3d4
+
+### Lesson learned
+When adding CSS variables, always check existing Tailwind dark: classes first
+to avoid duplication.
+```
+
+---
+
+## Directory Structure
+
+```
+~/10claude/                              ← mounted as /app in Docker containers
+│
+├── openclaw/                            # Python source (status-ui + kept utilities)
+│   ├── tools/
+│   │   ├── status_ui.py                 # FastAPI kanban UI + openclaw proxy
+│   │   ├── goal_evaluator.py            # done_when criterion evaluation (kept)
+│   │   ├── progress_memory.py           # git checkpoint logic (kept)
+│   │   ├── project_manager.py           # create/list projects (kept)
+│   │   └── world_model.py              # persistent world model JSON (kept)
+│   ├── adapters/
+│   │   └── coder/codex_cli.py          # Codex fallback (kept)
+│   └── static/index.html               # Kanban web UI (single HTML file)
+│
+├── config/                              # mounted read-only at /app/config
+│   ├── CLAUDE.md                        # agent rules → committed into every project repo
+│   ├── Caddyfile                        # reverse proxy config
+│   ├── architecture.yaml               # protected paths list
+│   ├── coding_agents.yaml              # code engine preference (claude / codex)
+│   ├── major_change.yaml               # git checkpoint thresholds
+│   └── runtime_parallelism.yaml        # worker count (reference only — now in openclaw.json)
+│
+├── workspace/                           # ALL runtime state (back this up)
+│   ├── queue/
+│   │   └── task_store.json             # task metadata: id, prompt, status, plan, answers
+│   ├── results/
+│   │   └── {task_id}.json             # task outcome: success, session_key, completed_at
+│   ├── projects/
+│   │   └── {project-name}/            # isolated git repos; each contains CLAUDE.md
+│   └── worktrees/
+│       └── {worker-id}/               # ephemeral git worktrees (active workers only)
+│
+├── logs/
+│   └── daemon.log                      # status-ui + container logs
+│
+├── backups/                            # manual/auto tarballs of workspace/
+│
+├── scripts/
+│   ├── setup_10claude.sh              # bootstrap: dirs + images + containers
+│   ├── migrate.sh                     # full migration to a new machine
+│   ├── setup_tailscale.sh             # Tailscale remote access setup
+│   └── worktree.sh                    # create/remove git worktrees for workers
+│
+├── Dockerfile                          # status-ui image (python:3.11-slim + claude CLI)
+├── Dockerfile.sandbox                  # sandbox worker image (debian:bookworm-slim + claude CLI)
+├── compose.yaml                        # 2 persistent services: caddy, status-ui
+├── requirements.txt
+├── setup.py
+└── .env                               # secrets — never committed
+
+~/.openclaw/                            # openclaw gateway state (back this up)
+├── openclaw.json                       # gateway + agent config
+├── workspace/
+│   ├── personal/                       # personal agent workspace
+│   │   ├── SOUL.md                    # agent identity
+│   │   ├── MEMORY.md                  # rolling memory summary (auto-maintained)
+│   │   └── memory/YYYY-MM-DD.md      # daily memory logs
+│   └── dev/                           # dev agent workspace
+│       ├── AGENTS.md                  # coding rules, worktree ops, checkpointing
+│       ├── SOUL.md                    # agent identity
+│       ├── MEMORY.md                  # rolling memory summary (auto-maintained)
+│       └── memory/YYYY-MM-DD.md      # daily memory logs
+└── agents/
+    ├── personal/agent/                # personal agent auth + SQLite memory index
+    └── dev/agent/                     # dev agent auth + SQLite memory index
+
+~/.claude/                             # Claude CLI auth (device-bound, cannot be copied)
+```
 
 ---
 
@@ -65,10 +418,12 @@ You (browser / CLI)
 | Requirement | Notes |
 |-------------|-------|
 | Docker + Docker Compose v2 | `docker compose version` to verify |
-| Claude CLI authenticated | `claude --version` — must be logged in (`claude auth login`) |
-| Anthropic API key | For LLM planning calls (not the same as Claude CLI auth) |
-| Git | For automatic code checkpoints |
-| 32 GB RAM, 24 CPU host (recommended) | Daemon is limited to 20 GB / 15 CPUs |
+| Node.js ≥ 18 + npm | For openclaw and Claude CLI |
+| `openclaw` npm package | `npm install -g openclaw` |
+| Claude CLI authenticated | `claude auth login` — device-bound, required on each machine |
+| Anthropic API key | For plan generation in status-ui (set in `.env`) |
+| Git | For project repos and worktrees |
+| 16 GB RAM recommended | 3 sandbox workers × ~3 GB each = ~9 GB peak |
 
 ---
 
@@ -81,125 +436,134 @@ git clone <repo-url> ~/10claude
 cd ~/10claude
 ```
 
-### 2. Create `.env`
+### 2. Install Node.js and openclaw
 
 ```bash
-cp .env.example .env   # if it exists, otherwise create manually
+# Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# npm global prefix (non-root)
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Claude CLI + openclaw
+npm install -g @anthropic-ai/claude-code openclaw
 ```
 
-`.env` must contain:
+### 3. Authenticate Claude CLI
+
+```bash
+claude auth login
+# Follow the browser OAuth flow — required on every new machine
+```
+
+### 4. Create `.env`
+
+```bash
+cp .env.example .env   # or create manually
+```
+
+Required fields:
 
 ```dotenv
-# Git identity used for auto-commits inside containers
 GIT_AUTHOR_NAME=your-name
 GIT_AUTHOR_EMAIL=your@email.com
 GIT_COMMITTER_NAME=your-name
 GIT_COMMITTER_EMAIL=your@email.com
 
-# Anthropic API key (for LLM planning)
 ANTHROPIC_API_KEY=sk-ant-...
 
-# OpenAI API key (optional, for Codex fallback)
-OPENAI_API_KEY=sk-...
-
-# Web UI basic auth (default password: openclaw — change this!)
-# Generate a new hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'yourpass'
+# Web UI basic auth (default password: openclaw)
+# Generate hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'yourpass'
+# Double every $ sign in the hash for Docker Compose compatibility
 UI_USER=admin
 UI_PASS_HASH=$$2a$$14$$OjGuIIHJeAHNMNt8UstDwO44MAX3tFsdsmX/5Y7yIV28xV9ZhDWUm
 ```
 
-> Note: `$` signs in `UI_PASS_HASH` must be doubled (`$$`) — Docker Compose treats `$` as a variable prefix.
-
-### 3. Run the bootstrap script
+### 5. Bootstrap
 
 ```bash
 bash scripts/setup_10claude.sh
 ```
 
-This creates required directories, builds images, and starts all containers.
+This installs the openclaw gateway systemd service, builds both Docker images, and starts all containers.
 
-### 4. Verify
+### 6. Verify
 
 ```bash
-docker compose ps          # all 3 containers should be Up
-curl http://localhost:18888/api/health   # {"status":"ok","running":null}
+openclaw gateway health            # OK (0ms)
+curl http://localhost:18888/api/health  # {"status":"ok","openclaw_url":"..."}
+docker compose ps                  # caddy + status-ui both Up
 ```
 
 ---
 
 ## Configuration
 
-All config lives in `config/` — mounted read-only into containers at `/app/config`.
+### `~/.openclaw/openclaw.json` — gateway + agents
 
-### `config/llm_backends.yaml` — LLM provider
+Primary config for the execution engine. Key fields:
 
-```yaml
-default_provider: anthropic   # anthropic | openai | local
-providers:
-  anthropic:
-    model: claude-3-5-sonnet-20241022
-  openai:
-    model: gpt-4o-mini
+| Field | Default | Description |
+|-------|---------|-------------|
+| `gateway.port` | `18789` | Gateway WebSocket + HTTP port |
+| `agents.defaults.subagents.maxConcurrent` | `3` | Max parallel coding workers per task |
+| `agents.list[dev].sandbox.mode` | `non-main` | Sandbox all sub-agent (worker) sessions |
+| `agents.list[dev].sandbox.scope` | `session` | One container per worker session |
+| `agents.list[dev].sandbox.docker.network` | `host` | Workers need Anthropic API access |
+
+After editing, restart the gateway:
+```bash
+systemctl --user restart openclaw-gateway
 ```
 
-Change `default_provider` to switch which LLM handles planning.
+### `~/.openclaw/workspace/dev/AGENTS.md` — coding rules
 
-### `config/coding_agents.yaml` — Code engine
+Instructions injected into the dev agent's system prompt on every session. Edit this to change:
+- Which tools workers use (`claude --dangerously-skip-permissions`)
+- Worktree creation/cleanup steps
+- Checkpointing thresholds
+- Protected paths
 
-```yaml
-default: claude   # claude | codex
-```
+### `config/CLAUDE.md` — project repo rules
 
-`claude` = Claude CLI (recommended). `codex` = OpenAI GPT-4o via API.
+Committed into every new project repo. Claude Code reads it automatically. Controls:
+- Rebase and test failure recovery flows
+- Parallel worktree conventions
+- PROGRESS.md lessons-learned format
 
-### `config/runtime_parallelism.yaml` — Worker pool
-
-```yaml
-parallelism:
-  max_workers: 3      # concurrent workers per task
-  per_task_limit: 1   # tasks running simultaneously
-```
-
-Each worker spawns a `claude` CLI process. 3 workers × ~3 GB each = ~9 GB peak RAM.
-
-### `config/major_change.yaml` — Auto-checkpoint thresholds
-
-```yaml
-thresholds:
-  files_changed: 5    # git diff --stat threshold
-  insertions: 50
-  deletions: 20
-
-always_major:
-  - "config/"
-  - "database schema"
-  - "migration"
-```
-
-When a sub-goal crosses these thresholds, the system commits and snapshots before continuing.
-
-### `config/architecture.yaml` — Protected paths
+### `config/architecture.yaml` — protected paths
 
 ```yaml
 protected_paths:
   - "/app/config"
   - "/app/workspace/memory"
   - "/app/workspace/semantic_memory"
+  - "/var/run/docker.sock"
 ```
 
-The planner will not schedule writes to these paths.
+Referenced in `AGENTS.md` — the dev agent will not write to these paths.
 
-### `config/CLAUDE.md` — Agent rules
+### `config/major_change.yaml` — checkpoint thresholds
 
-Copied into every new project repo on creation. Claude Code reads this automatically from the working directory. Documents:
+```yaml
+thresholds:
+  files_changed: 5
+  insertions: 50
+  deletions: 20
+always_major:
+  - "config/"
+  - "database schema"
+  - "migration"
+```
 
-- Conflict resolution flow (rebase failures, test failures)
-- Parallel worktree architecture rules
-- PROGRESS.md lessons-learned format
+Referenced in `AGENTS.md` — when crossed, the agent commits and snapshots before continuing.
 
-### `.env` — Secrets
+### `.env` — secrets
 
-Never committed to git. Contains API keys and UI credentials. See [Fresh Install](#fresh-install) for full template.
+Never committed. Contains API keys and UI credentials.
 
 ---
 
@@ -208,176 +572,104 @@ Never committed to git. Contains API keys and UI credentials. See [Fresh Install
 ### Local access
 
 ```
-http://localhost:18888    (direct, no auth)
-https://localhost         (via Caddy, requires basic auth)
+http://localhost:18888    direct, no auth (status-ui)
+https://localhost         via Caddy, requires basic auth
 ```
 
 ### Remote access via Tailscale
 
-1. Install Tailscale on this machine:
-   ```bash
-   bash scripts/setup_tailscale.sh
-   ```
-
-2. Install Tailscale on your phone (same account).
-
-3. Open `https://<tailscale-ip>` on your phone.
-   - Accept the self-signed cert warning once.
-   - Login: `admin` / `openclaw` (change in `.env`).
+```bash
+bash scripts/setup_tailscale.sh
+# Then open https://<tailscale-ip> on any device on your tailnet
+```
 
 ### Changing the UI password
 
 ```bash
-# Generate a new bcrypt hash
 docker run --rm caddy:2-alpine caddy hash-password --plaintext 'yournewpassword'
-
-# Paste the output into .env — double every $ sign:
-# UI_PASS_HASH=$$2a$$14$$...
-```
-
-Then restart Caddy:
-```bash
+# Paste output into .env as UI_PASS_HASH=$$2a$$...  (double every $)
 docker compose restart caddy
 ```
-
-### Kanban board columns
-
-| Column | Meaning |
-|--------|---------|
-| Pending | Queued, waiting for daemon |
-| In Dev | Daemon is actively running it |
-| Review | Plan generated, awaiting your confirmation |
-| Done | Completed successfully |
-| Failed | Completed with errors — retry available |
-| Cancelled | Manually cancelled |
 
 ---
 
 ## How to Use
 
-### Via the Web UI (recommended)
+### Submit a task (Plan mode — recommended)
 
-1. Open `http://localhost:18888` (or Tailscale URL).
-2. Type your task in the input box.
-3. Enable **Plan Mode** to have Claude generate a plan and ask clarifying questions before executing.
-4. Click **Submit** (or Cmd+Enter).
-5. Watch the task move through the Kanban columns.
+1. Open `http://localhost:18888`
+2. Type your task and enable **Plan Mode**
+3. Click **Submit** — the LLM generates a plan and clarifying questions
+4. Review the plan, answer the questions, click **Confirm**
+5. The task moves to **In Dev** as the dev agent spawns coding workers
+6. Watch it complete through the Kanban board
 
-### Via the CLI (inside the container)
+### Submit a task (direct)
 
-```bash
-docker exec -it openclaw openclaw
-```
-
-Prompts for project selection, then task input. Streams live log output until the task completes.
-
-### Projects
-
-Each task runs inside a **project** — an isolated git repository under `/app/workspace/projects/`. On first use you create a project; subsequent tasks can continue an existing one. Agent rules from `config/CLAUDE.md` are automatically committed into each new project.
+Disable Plan Mode and click Submit. The task goes straight to the dev agent without a review step.
 
 ### Task dependencies
 
-In the UI, set **Depends on** to another task's ID. The daemon will not start the dependent task until its prerequisite completes successfully.
+Set **Depends on** to another task's ID in the UI. The task will not start until its prerequisite reaches `completed`.
 
----
+### Projects
 
-## Directory Structure
+Each task runs inside a **project** — an isolated git repo under `workspace/projects/`. Select an existing project or create a new one. The `CLAUDE.md` rules file is committed into every new project automatically.
 
-```
-~/10claude/                         ← mounted as /app in all containers
-│
-├── openclaw/                       # Python source (control + execution plane)
-│   ├── adapters/
-│   │   ├── coder/                  # claude_cli.py, codex_cli.py
-│   │   ├── git/                    # repo.py — worktree management
-│   │   └── llm/                    # anthropic.py, openai.py, client.py
-│   ├── tools/
-│   │   ├── runtime_engine.py       # daemon main loop
-│   │   ├── status_ui.py            # FastAPI + Kanban UI API
-│   │   ├── long_horizon_loop.py    # outer planning → sub-goals loop
-│   │   ├── hierarchical_planner.py # goal decomposition
-│   │   ├── dag_planner.py          # sub-goal → DAG
-│   │   ├── parallel_executor.py    # concurrent DAG runner
-│   │   ├── coding_agent_router.py  # dispatch to Claude/Codex per worktree
-│   │   ├── goal_evaluator.py       # done_when criterion evaluation
-│   │   ├── progress_memory.py      # git checkpoints + workspace snapshots
-│   │   ├── project_manager.py      # create/list projects
-│   │   ├── semantic_memory.py      # long-term experience store
-│   │   ├── semantic_retrieval.py   # experience retrieval
-│   │   └── world_model.py          # persistent world model (JSON)
-│   ├── static/index.html           # Kanban web UI (single file)
-│   └── cli.py                      # interactive CLI entrypoint
-│
-├── config/                         # mounted read-only at /app/config
-│   ├── llm_backends.yaml           # LLM provider + model
-│   ├── coding_agents.yaml          # code engine (claude / codex)
-│   ├── runtime_parallelism.yaml    # worker pool size
-│   ├── major_change.yaml           # auto-checkpoint thresholds
-│   ├── architecture.yaml           # protected paths
-│   ├── CLAUDE.md                   # agent rules (copied into new projects)
-│   └── Caddyfile                   # reverse proxy + TLS + basic auth
-│
-├── workspace/                      # ALL runtime state
-│   ├── queue/
-│   │   ├── tasks.jsonl             # append-only task queue
-│   │   ├── task_store.json         # full task metadata (plan, answers, status)
-│   │   └── current_task            # task ID currently running (read by UI)
-│   ├── results/                    # {task_id}.json — outcome of each task
-│   ├── projects/                   # isolated git repos per project
-│   │   └── {project-name}/         # each is a full git repo + CLAUDE.md
-│   ├── worktrees/                  # git worktrees (one per active worker)
-│   ├── memory/
-│   │   └── world_model.json        # agent's persistent world model
-│   ├── semantic_memory/
-│   │   └── entries/                # timestamped experience JSON files
-│   └── repo/                       # legacy fallback repo (no project selected)
-│
-├── logs/
-│   └── daemon.log                  # unified log — grep <task-id> to filter
-│
-├── backups/                        # auto-snapshots (tarballs of /app/workspace)
-├── scripts/
-│   ├── setup_10claude.sh           # bootstrap: dirs + build + start
-│   └── setup_tailscale.sh          # install Tailscale for remote access
-├── tests/                          # pytest test suite
-├── compose.yaml                    # 3 services: caddy, openclaw, runtime-daemon
-├── Dockerfile                      # single image for openclaw + runtime-daemon
-├── requirements.txt
-├── setup.py
-└── .env                            # secrets — never committed
+### Check task logs
+
+```bash
+# All status-ui output
+docker compose logs -f status-ui
+
+# openclaw gateway (agent sessions, sandbox spawn)
+journalctl --user -u openclaw-gateway -f
+
+# Filter by task ID
+grep task-abc12345 ~/10claude/logs/daemon.log
 ```
 
 ---
 
-## Containers
+## Migration to a New Machine
 
-### `caddy`
+### What the migration script automates
 
-Reverse proxy. Terminates TLS, enforces basic auth, forwards to `openclaw:18888`.
-Image: `caddy:2-alpine` (pulled from Docker Hub, not built locally).
+Run `bash scripts/migrate.sh` on the new machine after copying state. It handles:
 
-- Port 80 → redirects to HTTPS
-- Port 443 → proxied to openclaw after auth
+- Installs Docker (if missing, via `get.docker.com`)
+- Installs Node.js 20 (if missing or too old, via NodeSource)
+- Installs Claude CLI + openclaw npm packages
+- Validates copied state (`~/.openclaw/openclaw.json`, `.env`, workspace dirs)
+- Reinstalls openclaw gateway as a systemd user service (`--force` to overwrite old unit)
+- Rebuilds both Docker images (`status-ui` + `openclaw-sandbox:latest`)
+- Clears any orphaned old containers (`openclaw`, `runtime-daemon`)
+- Starts all containers
+- Smoke-tests every component
 
-### `openclaw`
+### The one step that cannot be automated
 
-Control plane + web UI.
+```bash
+claude auth login
+```
 
-- FastAPI server on port 18888
-- Serves the Kanban board at `/`
-- API at `/api/*`
-- Resource limits: 1 CPU, 512 MB RAM
+Claude CLI auth is cryptographically bound to the device. It always requires an interactive browser flow on the new machine — there is no way to copy or skip this.
 
-### `runtime-daemon`
+### How to move
 
-Execution plane. Never directly user-facing.
+```bash
+# On the OLD machine — copy state to new host
+rsync -av ~/10claude/   user@new-host:~/10claude/
+rsync -av ~/.openclaw/  user@new-host:~/.openclaw/
+rsync -av ~/.ssh/       user@new-host:~/.ssh/
+scp ~/10claude/.env     user@new-host:~/10claude/.env
 
-- Polls `/app/workspace/queue/tasks.jsonl` every 3 seconds
-- Spawns up to 3 Claude CLI workers per task
-- Writes results to `/app/workspace/results/`
-- Resource limits: 15 CPUs, 20 GB RAM
+# On the NEW machine
+bash ~/10claude/scripts/migrate.sh
+claude auth login
+```
 
-All three containers mount `~/10claude` as `/app`.
+After `claude auth login`, submit a small test task at `http://localhost:18888` to confirm sandbox containers spin up correctly.
 
 ---
 
@@ -386,49 +678,32 @@ All three containers mount `~/10claude` as `/app`.
 ### Full backup
 
 ```bash
-cd ~/10claude
+# Captures all task history, results, projects, and openclaw memory
 tar czf ~/openclaw-backup-$(date +%Y%m%d).tgz \
-    workspace logs config backups
+    ~/10claude/workspace \
+    ~/10claude/logs \
+    ~/10claude/config \
+    ~/10claude/backups \
+    ~/.openclaw/workspace \
+    ~/.openclaw/agents
 ```
 
-This captures task history, results, agent memory, semantic memory, and all config. Does not include source code (that's in git).
-
-### Restore on a new machine
-
-```bash
-# 1. Clone the repo
-git clone <repo-url> ~/10claude
-cd ~/10claude
-
-# 2. Restore state
-tar xzf ~/openclaw-backup-YYYYMMDD.tgz -C ~/10claude/
-
-# 3. Recreate .env (not in backup — store separately)
-# Add ANTHROPIC_API_KEY, GIT identity, UI_USER, UI_PASS_HASH
-
-# 4. Re-authenticate Claude CLI on the new machine
-claude auth login
-
-# 5. Start
-bash scripts/setup_10claude.sh
-```
+Does not include source code (in git) or secrets (`.env` — store separately).
 
 ### If containers fail to start
 
 ```bash
-# Check logs
-docker compose logs openclaw
-docker compose logs runtime-daemon
+docker compose logs status-ui
 docker compose logs caddy
+journalctl --user -u openclaw-gateway -n 50
 
-# Rebuild images (e.g. after Dockerfile change)
+# Rebuild images
 docker compose build --no-cache
+docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox .
 docker compose up -d
 ```
 
 ### Read task logs
-
-All daemon output is in one file. Filter by task ID:
 
 ```bash
 grep task-abc123 ~/10claude/logs/daemon.log
@@ -440,11 +715,14 @@ grep task-abc123 ~/10claude/logs/daemon.log
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| UI shows no tasks | `openclaw` container not running | `docker compose up -d openclaw` |
-| Tasks stuck in Pending | `runtime-daemon` not running | `docker compose up -d runtime-daemon` |
-| `claude` CLI fails inside daemon | Claude CLI not authenticated | `docker exec -it runtime-daemon claude auth login` |
-| `ANTHROPIC_API_KEY not set` error | Missing from `.env` | Add key to `.env`, `docker compose up -d --force-recreate` |
-| Caddy shows 502 Bad Gateway | `openclaw` not ready yet | Wait 15s for pip install on startup |
-| Self-signed cert warning on phone | Expected on first visit | Accept/trust the cert once |
+| UI shows no tasks | `status-ui` container not running | `docker compose up -d status-ui` |
+| Tasks stuck in Pending | openclaw gateway not running | `systemctl --user restart openclaw-gateway` |
+| Tasks fail immediately | Claude CLI not authenticated | `claude auth login` (on host, not inside container) |
+| `ANTHROPIC_API_KEY not set` | Missing from `.env` | Add key to `.env`, `docker compose up -d --force-recreate` |
+| Caddy shows 502 Bad Gateway | `status-ui` not ready yet | Wait 15 s for pip install on startup |
+| Self-signed cert warning | Expected on first visit | Accept/trust the cert once |
 | Task failed — want to retry | Any failure | Click Retry in the UI or `POST /api/retry/{task_id}` |
-| `UI_PASS_HASH` variable warnings | `$` not escaped in `.env` | Double every `$` → `$$` in the hash value |
+| `UI_PASS_HASH` warnings | `$` not escaped in `.env` | Double every `$` → `$$` in the hash |
+| openclaw gateway crashes on start | `gateway.mode` not set | Ensure `openclaw.json` has `"gateway": {"mode": "local", ...}` |
+| Sandbox container fails to start | Image not built | `docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox .` |
+| `maxConcurrent` schema error | Wrong config location | Field belongs in `agents.defaults.subagents`, not per-agent |

@@ -1,4 +1,0 @@
-default: claude
-agents:
-  - claude
-  - codex

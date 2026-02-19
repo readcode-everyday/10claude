@@ -1,3 +1,0 @@
-parallelism:
-  max_workers: 3
-  per_task_limit: 1

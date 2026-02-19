@@ -1,33 +1,83 @@
 """
 FastAPI task management API + kanban web UI.
 Serves the OpenClaw dashboard on port 18888.
+Dispatches tasks to the openclaw gateway instead of the legacy runtime-daemon.
 """
 import json
 import logging
+import os
 import re
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="OpenClaw")
+app = FastAPI(title="OpenClaw Status UI")
 log = logging.getLogger(__name__)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-QUEUE         = Path("/app/workspace/queue/tasks.jsonl")
 RESULTS       = Path("/app/workspace/results")
 LOG_FILE      = Path("/app/logs/daemon.log")
 TASK_STORE    = Path("/app/workspace/queue/task_store.json")
-CURRENT_TASK  = Path("/app/workspace/queue/current_task")
 PROJECTS_ROOT = Path("/app/workspace/projects")
 STATIC_DIR    = Path(__file__).parent.parent / "static"
 
 _lock = threading.Lock()
+
+
+# ── openclaw gateway client ─────────────────────────────────────────────────────
+
+OPENCLAW_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://localhost:18789")
+
+_gateway_token: Optional[str] = None
+
+
+def _get_token() -> str:
+    global _gateway_token
+    if _gateway_token:
+        return _gateway_token
+    # Try env first
+    token = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
+    if not token:
+        # Fall back to reading from openclaw.json
+        try:
+            cfg = json.loads((Path.home() / ".openclaw" / "openclaw.json").read_text())
+            token = cfg.get("gateway", {}).get("auth", {}).get("token", "")
+        except Exception:
+            pass
+    _gateway_token = token
+    return token
+
+
+def _headers() -> dict:
+    return {
+        "Authorization": f"Bearer {_get_token()}",
+        "Content-Type": "application/json",
+    }
+
+
+def _invoke(tool: str, args: dict = None, action: str = None, session_key: str = "main") -> Optional[dict]:
+    payload: dict = {"tool": tool, "sessionKey": session_key}
+    if args:
+        payload["args"] = args
+    if action:
+        payload["action"] = action
+    try:
+        r = httpx.post(f"{OPENCLAW_URL}/tools/invoke", headers=_headers(), json=payload, timeout=30)
+        data = r.json()
+        if data.get("ok"):
+            return data.get("result")
+        log.warning(f"openclaw tool {tool!r} error: {data.get('error')}")
+    except Exception as e:
+        log.warning(f"openclaw invoke error [{tool}]: {e}")
+    return None
 
 
 # ── Task Store ─────────────────────────────────────────────────────────────────
@@ -55,33 +105,6 @@ def _upsert(task: dict):
         _write_store(store)
 
 
-def _enqueue(task: dict):
-    QUEUE.parent.mkdir(parents=True, exist_ok=True)
-    payload = {k: task[k] for k in ("id", "prompt", "project_path", "depends_on")
-               if task.get(k) is not None}
-    with QUEUE.open("a") as f:
-        f.write(json.dumps(payload) + "\n")
-
-
-def _queued_ids() -> set:
-    if not QUEUE.exists():
-        return set()
-    ids = set()
-    for line in QUEUE.read_text().splitlines():
-        try:
-            ids.add(json.loads(line.strip())["id"])
-        except Exception:
-            pass
-    return ids
-
-
-def _running_id() -> Optional[str]:
-    try:
-        return CURRENT_TASK.read_text().strip() or None
-    except Exception:
-        return None
-
-
 def _get_result(task_id: str) -> Optional[dict]:
     p = RESULTS / f"{task_id}.json"
     try:
@@ -90,51 +113,130 @@ def _get_result(task_id: str) -> Optional[dict]:
         return None
 
 
-def _compute_status(task_id: str, entry: Optional[dict]) -> str:
-    if entry and entry.get("status") in ("review", "cancelled"):
-        return entry["status"]
-    if _running_id() == task_id:
-        return "in_progress"
-    r = _get_result(task_id)
-    if r is not None:
-        return "completed" if r.get("success") else "failed"
-    if task_id in _queued_ids():
-        return "pending"
-    return entry.get("status", "unknown") if entry else "unknown"
-
-
 def _all_tasks() -> list:
     store = _read_store()
     RESULTS.mkdir(parents=True, exist_ok=True)
-    all_ids = (
-        set(store.keys())
-        | _queued_ids()
-        | {p.stem for p in RESULTS.glob("*.json")}
-    )
-    running = _running_id()
-    if running:
-        all_ids.add(running)
-
+    all_ids = set(store.keys()) | {p.stem for p in RESULTS.glob("*.json")}
     tasks = []
     for tid in all_ids:
         entry = store.get(tid, {})
-        status = _compute_status(tid, entry)
         task = {
             "id": tid,
             "prompt": entry.get("prompt", ""),
             "project_path": entry.get("project_path", ""),
-            "status": status,
+            "status": entry.get("status", "unknown"),
             "created_at": entry.get("created_at"),
             "plan": entry.get("plan"),
             "questions": entry.get("questions"),
             "answers": entry.get("answers"),
             "depends_on": entry.get("depends_on"),
         }
-        if status in ("completed", "failed"):
+        if task["status"] in ("completed", "failed"):
             task["result"] = _get_result(tid)
         tasks.append(task)
-
     return sorted(tasks, key=lambda t: t.get("created_at") or "", reverse=True)
+
+
+# ── openclaw Dispatch ──────────────────────────────────────────────────────────
+
+def _build_task_prompt(task: dict) -> str:
+    parts = [f"Task: {task['prompt']}"]
+    if task.get("project_path"):
+        parts.append(f"Project: {task['project_path']}")
+    if task.get("answers"):
+        parts.append("Answers to clarifying questions:")
+        for q, a in task["answers"].items():
+            parts.append(f"  - {q}: {a}")
+    if task.get("plan"):
+        parts.append(f"\nApproved implementation plan:\n{task['plan']}")
+    return "\n".join(parts)
+
+
+def _dispatch_to_openclaw(task: dict) -> Optional[str]:
+    """Spawn a dev agent sub-agent for this task. Returns childSessionKey or None."""
+    result = _invoke(
+        "sessions_spawn",
+        args={
+            "task": _build_task_prompt(task),
+            "agentId": "dev",
+            "label": task["id"],
+            "runTimeoutSeconds": 3600,
+        },
+    )
+    if result:
+        session_key = result.get("childSessionKey") or result.get("sessionKey")
+        log.info(f"spawned session {session_key!r} for task {task['id']}")
+        return session_key
+    log.error(f"failed to spawn sub-agent for task {task['id']}: {result}")
+    return None
+
+
+def _check_session_status(session_key: str) -> Optional[str]:
+    """
+    Check if an openclaw sub-agent session has completed.
+    Returns 'completed', 'failed', or None (still running / unknown).
+    """
+    result = _invoke("sessions_list", action="json")
+    if result is None:
+        return None
+    # result may be a list or an object with a sessions/subagents key
+    sessions = result if isinstance(result, list) else (
+        result.get("sessions") or result.get("subagents") or result.get("items") or []
+    )
+    for s in sessions:
+        key = s.get("key") or s.get("sessionKey") or s.get("id") or ""
+        if key == session_key or session_key in key:
+            st = (s.get("status") or s.get("state") or "").lower()
+            if st in ("active", "running", "pending", "queued"):
+                return None  # still running
+            if st in ("error", "failed", "timeout", "aborted"):
+                return "failed"
+            # done, completed, archived, ok, etc.
+            return "completed"
+    # Session not in list → likely auto-archived after completing
+    return "completed"
+
+
+def _write_result(task_id: str, session_key: str, outcome: str):
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    result = {
+        "task_id": task_id,
+        "success": outcome == "completed",
+        "session_key": session_key,
+        "completed_at": datetime.now().isoformat(),
+    }
+    (RESULTS / f"{task_id}.json").write_text(json.dumps(result, indent=2))
+
+
+# ── Background Status Poller ────────────────────────────────────────────────────
+
+def _poll_loop():
+    """Background thread: poll openclaw for in-progress task completions."""
+    while True:
+        try:
+            store = _read_store()
+            for tid, task in list(store.items()):
+                if task.get("status") != "in_progress":
+                    continue
+                session_key = task.get("openclaw_session_key")
+                if not session_key:
+                    continue
+                outcome = _check_session_status(session_key)
+                if outcome:
+                    with _lock:
+                        store2 = _read_store()
+                        if store2.get(tid, {}).get("status") == "in_progress":
+                            store2[tid]["status"] = outcome
+                            store2[tid]["completed_at"] = datetime.now().isoformat()
+                            _write_store(store2)
+                    _write_result(tid, session_key, outcome)
+                    log.info(f"task {tid} → {outcome}")
+        except Exception as e:
+            log.warning(f"status poller error: {e}")
+        time.sleep(15)
+
+
+threading.Thread(target=_poll_loop, daemon=True, name="openclaw-poller").start()
 
 
 # ── Plan Generation ────────────────────────────────────────────────────────────
@@ -173,8 +275,8 @@ def _generate_plan(prompt: str, feedback: str = None) -> dict:
     except Exception as e:
         log.warning(f"Plan generation failed: {e}")
     return {
-        "plan": f"# Plan\n\nTask: {prompt}\n\n*(Plan generation unavailable — check daemon logs)*",
-        "questions": []
+        "plan": f"# Plan\n\nTask: {prompt}\n\n*(Plan generation unavailable — check logs)*",
+        "questions": [],
     }
 
 
@@ -260,53 +362,70 @@ def replan(task_id: str, req: PlanRequest):
     return store[task_id]
 
 
+def _submit_and_dispatch(task: dict) -> dict:
+    """Save task and dispatch to openclaw. Returns updated task dict."""
+    _upsert(task)
+    session_key = _dispatch_to_openclaw(task)
+    with _lock:
+        store = _read_store()
+        if session_key:
+            store[task["id"]]["status"] = "in_progress"
+            store[task["id"]]["openclaw_session_key"] = session_key
+        else:
+            store[task["id"]]["status"] = "failed"
+            store[task["id"]]["error"] = "Failed to dispatch to openclaw gateway"
+        _write_store(store)
+    return store[task["id"]]
+
+
 @app.post("/api/submit")
 def submit(req: SubmitRequest):
     """Submit a task directly without plan review."""
-    task_id = f"task-{uuid.uuid4().hex[:8]}"
     task = {
-        "id": task_id,
+        "id": f"task-{uuid.uuid4().hex[:8]}",
         "prompt": req.prompt,
         "project_path": req.project_path,
         "status": "pending",
         "created_at": datetime.now().isoformat(),
         "depends_on": req.depends_on,
     }
-    _upsert(task)
-    _enqueue(task)
-    return {"task_id": task_id, "status": "queued"}
+    updated = _submit_and_dispatch(task)
+    return {"task_id": task["id"], "status": updated["status"]}
 
 
 @app.post("/api/confirm/{task_id}")
 def confirm(task_id: str, req: ConfirmRequest):
-    """Confirm a plan-review task and submit it to the execution queue."""
+    """Confirm a plan-review task and submit it to openclaw."""
     with _lock:
         store = _read_store()
         task = store.get(task_id)
         if not task:
             raise HTTPException(404, "Task not found")
         task["answers"] = req.answers
-        task["status"] = "pending"
         task["confirmed_at"] = datetime.now().isoformat()
         store[task_id] = task
         _write_store(store)
-    _enqueue(task)
-    return {"status": "queued"}
+    updated = _submit_and_dispatch(task)
+    return {"status": updated["status"]}
 
 
 @app.post("/api/retry/{task_id}")
 def retry(task_id: str):
     """Re-queue a failed task."""
-    store = _read_store()
-    task = store.get(task_id, {"id": task_id, "prompt": ""})
-    result_file = RESULTS / f"{task_id}.json"
-    if result_file.exists():
-        result_file.unlink()
-    task["status"] = "pending"
-    task.setdefault("created_at", datetime.now().isoformat())
-    _upsert(task)
-    _enqueue(task)
-    return {"status": "requeued"}
+    with _lock:
+        store = _read_store()
+        task = store.get(task_id, {"id": task_id, "prompt": "", "status": "pending"})
+        result_file = RESULTS / f"{task_id}.json"
+        if result_file.exists():
+            result_file.unlink()
+        task["status"] = "pending"
+        task.setdefault("created_at", datetime.now().isoformat())
+        task.pop("openclaw_session_key", None)
+        task.pop("error", None)
+        store[task_id] = task
+        _write_store(store)
+    updated = _submit_and_dispatch(task)
+    return {"status": updated["status"]}
 
 
 @app.delete("/api/tasks/{task_id}")
@@ -331,7 +450,7 @@ def logs(tail: int = 200):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "running": _running_id()}
+    return {"status": "ok", "openclaw_url": OPENCLAW_URL}
 
 
 # ── Legacy compatibility ───────────────────────────────────────────────────────

@@ -11,16 +11,15 @@ services:
       - ~/10claude/config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_certs:/config
-    # Note: Caddy only needs its own config, not the app directory
     environment:
       - UI_USER=${UI_USER}
       - UI_PASS_HASH=${UI_PASS_HASH}
     depends_on:
-      - openclaw
+      - status-ui
 
 
-  openclaw:
-    container_name: openclaw
+  status-ui:
+    container_name: status-ui
     build: .
     working_dir: /app
 
@@ -30,12 +29,16 @@ services:
       - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL}
       - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME}
       - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
+      # openclaw gateway runs on host — use host.docker.internal to reach it
+      - OPENCLAW_GATEWAY_URL=http://host.docker.internal:18789
+      # Token is auto-read from ~/.openclaw/openclaw.json (mounted below)
+      # Override with OPENCLAW_GATEWAY_TOKEN env var if preferred
 
     volumes:
       - ~/10claude:/app
       - ~/.ssh:/root/.ssh:ro
       - ~/.claude:/root/.claude
-      - ~/.codex:/root/.codex
+      - ~/.openclaw:/root/.openclaw:ro   # read openclaw.json for gateway token
 
     command: >
       bash -c "
@@ -46,45 +49,14 @@ services:
     ports:
       - "18888:18888"
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     deploy:
       resources:
         limits:
           cpus: "1"
           memory: 512M
-
-    restart: unless-stopped
-
-
-  runtime-daemon:
-    container_name: runtime-daemon
-    build: .
-    working_dir: /app
-
-    env_file: .env
-    environment:
-      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME}
-      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL}
-      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME}
-      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
-
-    volumes:
-      - ~/10claude:/app
-      - ~/.ssh:/root/.ssh:ro
-      - ~/.claude:/root/.claude
-      - ~/.codex:/root/.codex
-      - /var/run/docker.sock:/var/run/docker.sock
-
-    command: >
-      bash -c "
-        pip install -q -e /app &&
-        python -u -m openclaw.tools.runtime_engine
-      "
-
-    deploy:
-      resources:
-        limits:
-          cpus: "15"
-          memory: 20G
 
     restart: unless-stopped
 

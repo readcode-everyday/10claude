@@ -51,28 +51,6 @@ def test_claude_md_content_matches_template(tmp_path):
     assert (path / "CLAUDE.md").read_text() == tpl.read_text()
 
 
-def test_worktree_inherits_claude_md(tmp_path):
-    """A git worktree branched from the project must contain CLAUDE.md."""
-    tpl = _make_claude_md(tmp_path)
-    worktrees = tmp_path / "worktrees"
-
-    with patch("openclaw.tools.project_manager.PROJECTS_ROOT", tmp_path / "projects"), \
-         patch("openclaw.tools.project_manager.CLAUDE_MD_TEMPLATE", tpl), \
-         patch("openclaw.tools.git.repo.WORKTREES", worktrees) \
-            if False else patch("openclaw.adapters.git.repo.WORKTREES", worktrees):
-        from openclaw.tools.project_manager import create_project
-        from openclaw.adapters.git.repo import create_worktree, remove_worktree
-
-        project = create_project("my-app")
-        wt_path = create_worktree("test-worker", repo_root=project)
-
-        try:
-            assert (wt_path / "CLAUDE.md").exists(), \
-                "CLAUDE.md must be present in every worker's worktree"
-            assert (wt_path / "CLAUDE.md").read_text() == tpl.read_text()
-        finally:
-            remove_worktree("test-worker", repo_root=project)
-
 
 def test_list_projects_returns_only_git_dirs(tmp_path):
     """list_projects must only return directories that have a .git folder."""

@@ -50,6 +50,20 @@ def create_project(name: str) -> Path:
         subprocess.run(["git", "add", "CLAUDE.md"], cwd=path, check=True, capture_output=True)
         subprocess.run(["git", "commit", "-m", "add agent rules"], cwd=path, check=True, capture_output=True, env=env)
 
+    # If running inside Docker as root, chown to the host user so the dev agent
+    # (which runs on the host as the real user) can write to the project.
+    host_uid = os.environ.get("HOST_UID")
+    host_gid = os.environ.get("HOST_GID")
+    if host_uid and host_gid:
+        try:
+            subprocess.run(
+                ["chown", "-R", f"{host_uid}:{host_gid}", str(path)],
+                check=True, capture_output=True,
+            )
+            log.info(f"chown {host_uid}:{host_gid} {path}")
+        except Exception as e:
+            log.warning(f"chown failed (non-fatal): {e}")
+
     log.info(f"Created project: {path}")
     return path
 

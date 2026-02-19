@@ -41,9 +41,10 @@ You (browser)
       ▼
    [ openclaw gateway ]  — AI messaging gateway  (native systemd, permanent)
       │
-      │  agent:dev:main  receives task message, spawns sub-agents as needed
+      │  agent:dev:main  receives task, works directly for simple tasks
+      │  or calls sessions_spawn to run parallel sub-agents for complex ones
       ▼
-   [ openclaw-sandbox ]  — ephemeral Docker containers  (one per coding worker)
+   [ openclaw-sandbox ]  — ephemeral Docker containers  (one per sub-agent session)
       │  runs: claude --dangerously-skip-permissions -p '<task>'
       │  mounts: workspace/projects, workspace/worktrees, ~/.claude
       │
@@ -116,7 +117,7 @@ Both agents run inside the same openclaw gateway process. Memory and sessions ar
 
 **Image:** `openclaw-sandbox:latest` (built locally from `Dockerfile.sandbox`)
 **Base:** `debian:bookworm-slim` + git + Node.js + `@anthropic-ai/claude-code`
-**Lifetime:** One per sub-agent session (`scope: "session"`); auto-destroyed on session end
+**Lifetime:** One per sub-agent session (`scope: "session"`); auto-destroyed on session end. Only spawned when the dev agent calls `sessions_spawn` — simple tasks run directly in the dev agent's main session without a sandbox container.
 **Network:** `bridge` — workers reach the Anthropic API via Docker's default bridge; `host` mode is blocked by openclaw's sandbox security policy (since v2026.2.17)
 **Why Docker:** `claude --dangerously-skip-permissions` requires container filesystem scope to limit blast radius
 

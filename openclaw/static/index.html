@@ -325,6 +325,9 @@ select {
     <select id="project-select" style="max-width:180px">
       <option value="">None</option>
     </select>
+    <input id="new-project-input" type="text" placeholder="project-name" title="Letters, digits, hyphens, underscores"
+      style="display:none;width:130px;margin-left:4px;padding:4px 6px;border:1px solid #555;border-radius:4px;background:#2a2a2a;color:#e0e0e0;font-size:13px">
+    <button id="new-project-btn" style="display:none;margin-left:4px;padding:4px 8px;font-size:12px" title="Create project">✓</button>
     <label class="plan-mode-label" style="margin-left:8px">
       <input type="checkbox" id="plan-mode"> ✦ Plan Mode
     </label>
@@ -687,14 +690,58 @@ async function loadTasks() {
   } catch(e) { console.warn('Failed to load tasks:', e); }
 }
 
-async function loadProjects() {
+async function loadProjects(selectName) {
   try {
     projects = await apiFetch('/api/projects');
     const sel = document.getElementById('project-select');
-    sel.innerHTML = '<option value="">None</option>' +
-      projects.map(p => `<option value="/workspace/projects/${esc(p)}">${esc(p)}</option>`).join('');
+    const current = selectName || sel.value;
+    sel.innerHTML =
+      '<option value="">None</option>' +
+      projects.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('') +
+      '<option value="__new__">＋ New project…</option>';
+    if (current && current !== '__new__') sel.value = current;
   } catch(e) { console.warn('Failed to load projects:', e); }
 }
+
+// ── New-project inline creation ───────────────────────────────────────────────
+document.getElementById('project-select').addEventListener('change', function() {
+  const inp  = document.getElementById('new-project-input');
+  const btn  = document.getElementById('new-project-btn');
+  if (this.value === '__new__') {
+    inp.style.display = 'inline-block';
+    btn.style.display = 'inline-block';
+    inp.value = '';
+    inp.focus();
+  } else {
+    inp.style.display = 'none';
+    btn.style.display = 'none';
+  }
+});
+
+async function doCreateProject() {
+  const inp  = document.getElementById('new-project-input');
+  const name = inp.value.trim();
+  if (!name) return;
+  try {
+    await apiFetch('/api/projects', { method: 'POST', body: JSON.stringify({ name }) });
+    toast(`Project "${name}" created`, 'success');
+    inp.style.display = 'none';
+    document.getElementById('new-project-btn').style.display = 'none';
+    await loadProjects(name);   // refresh and pre-select the new project
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+document.getElementById('new-project-btn').addEventListener('click', doCreateProject);
+document.getElementById('new-project-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
+  if (e.key === 'Escape') {
+    document.getElementById('new-project-input').style.display = 'none';
+    document.getElementById('new-project-btn').style.display = 'none';
+    document.getElementById('project-select').value = '';
+  }
+});
 
 // ── Voice Input ────────────────────────────────────────────────────────────────
 let recognition = null;

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# setup_10claude.sh — Bootstrap OpenClaw on a fresh machine.
+# setup_10claude.sh — Bootstrap OpenClaw on a machine where tools are already
+# installed (Docker, Node.js, openclaw, Claude CLI).
 #
 # Usage:
 #   bash scripts/setup_10claude.sh
@@ -9,19 +10,21 @@
 #   1. Checks prerequisites (Docker, Node.js, Claude CLI, openclaw)
 #   2. Creates required workspace directories
 #   3. Creates .env from template if missing
-#   4. Installs openclaw gateway as a systemd user service
-#   5. Builds Docker images and starts containers
-#   6. Smoke-tests all components
+#   4. Injects required openclaw.json config keys
+#   5. Installs openclaw gateway as a systemd user service
+#   6. Builds Docker images and starts containers
+#   7. Smoke-tests all components
+#
+# For a full migration from another machine (including installing prerequisites),
+# use scripts/migrate.sh instead.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-ok()   { echo -e "${GREEN}[✓]${NC} $*"; }
-warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+# shellcheck source=scripts/_lib.sh
+source "$ROOT/scripts/_lib.sh"
 
 echo ""
 echo "  OpenClaw bootstrap"
@@ -40,7 +43,7 @@ docker compose version &>/dev/null \
 ok "Docker Compose: $(docker compose version --short)"
 
 command -v node &>/dev/null \
-    || die "Node.js not found. Install via: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+    || die "Node.js not found. Install via NodeSource: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
 ok "Node.js: $(node --version)"
 
 command -v openclaw &>/dev/null \
@@ -72,7 +75,13 @@ ok "Directories ready"
 echo ""
 if [ ! -f .env ]; then
     warn ".env not found — creating from template"
-    cat > .env <<'EOF'
+    HOST_UID=$(id -u)
+    HOST_GID=$(id -g)
+    cat > .env <<EOF
+# ── Host user IDs — used to chown project repos created inside containers ─────
+HOST_UID=$HOST_UID
+HOST_GID=$HOST_GID
+
 # ── Git identity (for auto-commits inside sandbox containers) ─────────────────
 GIT_AUTHOR_NAME=your-name
 GIT_AUTHOR_EMAIL=your@email.com
@@ -80,14 +89,15 @@ GIT_COMMITTER_NAME=your-name
 GIT_COMMITTER_EMAIL=your@email.com
 
 # ── API key for plan generation ───────────────────────────────────────────────
+# Must be a standard API key (sk-ant-api03-...), not an OAuth token
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
 
 # ── Web UI basic auth ─────────────────────────────────────────────────────────
 # Default password: openclaw
 # To change: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'newpass'
-# Then replace the hash below — double every $ sign (e.g. $2a → $$2a)
+# Then replace the hash below — double every \$ sign (e.g. \$2a → \$\$2a)
 UI_USER=admin
-UI_PASS_HASH=$$2a$$14$$OjGuIIHJeAHNMNt8UstDwO44MAX3tFsdsmX/5Y7yIV28xV9ZhDWUm
+UI_PASS_HASH=\$\$2a\$\$14\$\$OjGuIIHJeAHNMNt8UstDwO44MAX3tFsdsmX/5Y7yIV28xV9ZhDWUm
 EOF
     warn ".env created — edit it and set ANTHROPIC_API_KEY and Git identity, then re-run."
     exit 0
@@ -96,86 +106,31 @@ else
     grep -q "REPLACE_ME" .env && die ".env still has placeholder values — edit it first"
 fi
 
-# ── 4. openclaw.json — verify required config keys exist ─────────────────────
+# ── 4. openclaw.json ──────────────────────────────────────────────────────────
 echo ""
-echo "Checking ~/.openclaw/openclaw.json..."
-
-OPENCLAW_CFG="$HOME/.openclaw/openclaw.json"
-if [ ! -f "$OPENCLAW_CFG" ]; then
-    warn "~/.openclaw/openclaw.json not found."
-    warn "Run the openclaw onboarding wizard first:"
-    warn "  openclaw configure"
-    warn "Then re-run this script."
-    exit 1
-fi
-
-# Inject required keys that the openclaw wizard doesn't set automatically.
-# Uses python3 to merge without clobbering existing values.
-python3 - "$OPENCLAW_CFG" <<'PYEOF'
-import json, sys
-path = sys.argv[1]
-cfg = json.loads(open(path).read())
-
-# gateway.tools.allow — whitelist sessions_send for HTTP /tools/invoke
-gw = cfg.setdefault("gateway", {})
-allow = gw.setdefault("tools", {}).setdefault("allow", [])
-for tool in ["sessions_send", "sessions_spawn"]:
-    if tool not in allow:
-        allow.append(tool)
-
-# top-level tools — cross-agent visibility and routing
-tools = cfg.setdefault("tools", {})
-tools.setdefault("sessions", {})["visibility"] = "all"
-tools.setdefault("agentToAgent", {})["enabled"] = True
-
-open(path, "w").write(json.dumps(cfg, indent=2))
-print("  gateway.tools.allow, tools.sessions.visibility, tools.agentToAgent — OK")
-PYEOF
-ok "openclaw.json required keys present"
+step "openclaw.json required config"
+inject_openclaw_config
 
 # ── 5. openclaw gateway (systemd) ────────────────────────────────────────────
 echo ""
-echo "Installing openclaw gateway service..."
-
-openclaw gateway install --port 18789 --force 2>/dev/null || openclaw gateway install --port 18789
-
-systemctl --user daemon-reload
-systemctl --user enable openclaw-gateway 2>/dev/null || true
-systemctl --user restart openclaw-gateway
-
-for i in $(seq 1 15); do
-    openclaw gateway health &>/dev/null && break
-    sleep 1
-done
-openclaw gateway health &>/dev/null \
-    && ok "openclaw gateway running on :18789" \
-    || warn "openclaw gateway may not be ready — check: journalctl --user -u openclaw-gateway -n 20"
+step "openclaw gateway"
+install_gateway
 
 # ── 6. Docker images + containers ────────────────────────────────────────────
 echo ""
-echo "Building Docker images..."
-docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox . \
-    2>&1 | grep -E "(DONE|error|ERROR|Successfully)" || true
-ok "openclaw-sandbox:latest built"
+step "Docker images"
+build_images
 
-docker compose build
 echo ""
-echo "Starting containers..."
-docker compose up -d --remove-orphans
+step "Containers"
+start_containers
 
 # ── 7. Smoke test ─────────────────────────────────────────────────────────────
 echo ""
-echo "Waiting for status-ui..."
-for i in $(seq 1 30); do
-    curl -sf http://localhost:18888/api/health >/dev/null 2>&1 && break
-    [ "$i" -eq 30 ] && warn "status-ui not responding — check: docker compose logs status-ui"
-    sleep 1
-done
-curl -sf http://localhost:18888/api/health >/dev/null 2>&1 \
-    && ok "status-ui ready: $(curl -s http://localhost:18888/api/health)" \
-    || true
+step "Smoke tests"
+smoke_tests
 
-# ── 8. Summary ────────────────────────────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "  ════════════════════════════════════════════════════"
 echo "  OpenClaw is running on $(hostname)"
@@ -184,9 +139,6 @@ echo "  Services:"
 echo "    openclaw gateway  →  :18789  (systemd)"
 echo "    status-ui         →  http://localhost:18888"
 echo "    caddy (TLS+auth)  →  https://localhost"
-echo ""
-echo "  Containers:"
-docker compose ps --format "    {{.Name}}  {{.Status}}"
 echo ""
 echo "  Next steps:"
 echo "  1. Open http://localhost:18888"

@@ -14,10 +14,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import re as _re
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
+
+from openclaw.tools import project_manager
 
 app = FastAPI(title="OpenClaw Status UI")
 log = logging.getLogger(__name__)
@@ -146,7 +150,9 @@ def _build_task_prompt(task: dict) -> str:
     parts = [f"Task: {task['prompt']}"]
     project = task.get("project_path", "").strip()
     if project:
-        project_abs = PROJECTS_ROOT_HOST / project
+        # project_path is the project name (e.g. "my-app"), not an absolute path
+        project_name = Path(project).name  # safe even if someone passes a full path
+        project_abs = PROJECTS_ROOT_HOST / project_name
         parts.append(f"Project directory (absolute path on host): {project_abs}")
         parts.append(f"Work inside that directory. All file writes and git commits must happen there.")
     if task.get("answers"):
@@ -383,6 +389,28 @@ def list_projects():
         p.name for p in PROJECTS_ROOT.iterdir()
         if p.is_dir() and (p / ".git").exists()
     )
+
+
+class CreateProjectRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/projects")
+def create_project(req: CreateProjectRequest):
+    """Create a new git-initialised project repo."""
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(400, "Project name is required")
+    if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_\-]*$', name):
+        raise HTTPException(400, "Project name must start with a letter/digit and contain only letters, digits, hyphens, underscores")
+    if (PROJECTS_ROOT / name).exists():
+        raise HTTPException(409, f"Project '{name}' already exists")
+    try:
+        project_manager.create_project(name)
+        return {"name": name, "created": True}
+    except Exception as e:
+        log.error(f"Failed to create project {name!r}: {e}")
+        raise HTTPException(500, str(e))
 
 
 @app.post("/api/plan")

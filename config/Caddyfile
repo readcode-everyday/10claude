@@ -23,7 +23,7 @@
         {$UI_USER} {$UI_PASS_HASH}
     }
 
-    reverse_proxy openclaw:18888
+    reverse_proxy localhost:18888
 }
 
 # Redirect plain HTTP to HTTPS

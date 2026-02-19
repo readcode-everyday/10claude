@@ -139,10 +139,16 @@ def _all_tasks() -> list:
 
 # ── openclaw Dispatch ──────────────────────────────────────────────────────────
 
+PROJECTS_ROOT_HOST = Path("/home/wangk/10claude/workspace/projects")
+
+
 def _build_task_prompt(task: dict) -> str:
     parts = [f"Task: {task['prompt']}"]
-    if task.get("project_path"):
-        parts.append(f"Project: {task['project_path']}")
+    project = task.get("project_path", "").strip()
+    if project:
+        project_abs = PROJECTS_ROOT_HOST / project
+        parts.append(f"Project directory (absolute path on host): {project_abs}")
+        parts.append(f"Work inside that directory. All file writes and git commits must happen there.")
     if task.get("answers"):
         parts.append("Answers to clarifying questions:")
         for q, a in task["answers"].items():
@@ -152,91 +158,114 @@ def _build_task_prompt(task: dict) -> str:
     return "\n".join(parts)
 
 
-def _dispatch_to_openclaw(task: dict) -> Optional[str]:
-    """Spawn a dev agent sub-agent for this task. Returns childSessionKey or None."""
-    result = _invoke(
-        "sessions_spawn",
-        args={
-            "task": _build_task_prompt(task),
-            "agentId": "dev",
-            "label": task["id"],
-            "runTimeoutSeconds": 3600,
-        },
-    )
-    if result:
-        session_key = result.get("childSessionKey") or result.get("sessionKey")
-        log.info(f"spawned session {session_key!r} for task {task['id']}")
-        return session_key
-    log.error(f"failed to spawn sub-agent for task {task['id']}: {result}")
-    return None
+DEV_SESSION_KEY = "agent:dev:main"
 
 
-def _check_session_status(session_key: str) -> Optional[str]:
+def _dispatch_background(task: dict):
     """
-    Check if an openclaw sub-agent session has completed.
-    Returns 'completed', 'failed', or None (still running / unknown).
+    Background thread per task: send to dev agent via sessions_send (blocking),
+    wait up to 10 min for reply, then mark task complete/failed.
     """
-    result = _invoke("sessions_list", action="json")
-    if result is None:
-        return None
-    # result may be a list or an object with a sessions/subagents key
-    sessions = result if isinstance(result, list) else (
-        result.get("sessions") or result.get("subagents") or result.get("items") or []
-    )
-    for s in sessions:
-        key = s.get("key") or s.get("sessionKey") or s.get("id") or ""
-        if key == session_key or session_key in key:
-            st = (s.get("status") or s.get("state") or "").lower()
-            if st in ("active", "running", "pending", "queued"):
-                return None  # still running
-            if st in ("error", "failed", "timeout", "aborted"):
-                return "failed"
-            # done, completed, archived, ok, etc.
-            return "completed"
-    # Session not in list → likely auto-archived after completing
-    return "completed"
+    task_id = task["id"]
+    reply = ""
+    outcome = "failed"
+    try:
+        log.info(f"dispatching task {task_id} to {DEV_SESSION_KEY}")
+        r = httpx.post(
+            f"{OPENCLAW_URL}/tools/invoke",
+            headers=_headers(),
+            json={
+                "tool": "sessions_send",
+                "sessionKey": "main",
+                "args": {
+                    "sessionKey": DEV_SESSION_KEY,
+                    "message": _build_task_prompt(task),
+                },
+            },
+            timeout=600,  # 10-minute hard cap; agent should reply by then
+        )
+        data = r.json()
+        if data.get("ok"):
+            result_data = data.get("result") or {}
+            details = result_data.get("details") or {}
+            # Check if sessions_send itself reported an error
+            if details.get("status") == "error":
+                reply = details.get("error") or "sessions_send returned error"
+                outcome = "failed"
+            else:
+                # Extract the agent's reply text
+                reply = (
+                    details.get("reply")
+                    or result_data.get("reply")
+                    or json.dumps(result_data)
+                )
+                outcome = "completed"
+        else:
+            reply = data.get("error") or data.get("message") or "Unknown gateway error"
+            outcome = "failed"
+    except httpx.TimeoutException:
+        reply = "Task timed out (10-minute limit exceeded)"
+        outcome = "failed"
+    except Exception as e:
+        reply = str(e)
+        outcome = "failed"
 
+    # Update task status atomically
+    with _lock:
+        store = _read_store()
+        if store.get(task_id, {}).get("status") == "in_progress":
+            store[task_id]["status"] = outcome
+            store[task_id]["completed_at"] = datetime.now().isoformat()
+            _write_store(store)
 
-def _write_result(task_id: str, session_key: str, outcome: str):
+    # Write result file (reply visible in UI)
     RESULTS.mkdir(parents=True, exist_ok=True)
-    result = {
+    (RESULTS / f"{task_id}.json").write_text(json.dumps({
         "task_id": task_id,
         "success": outcome == "completed",
-        "session_key": session_key,
+        "reply": reply,
+        "session_key": DEV_SESSION_KEY,
         "completed_at": datetime.now().isoformat(),
-    }
-    (RESULTS / f"{task_id}.json").write_text(json.dumps(result, indent=2))
+    }, indent=2))
+    log.info(f"task {task_id} → {outcome}: {reply[:120]}")
 
 
-# ── Background Status Poller ────────────────────────────────────────────────────
+# ── Stale-Task Watchdog ─────────────────────────────────────────────────────────
 
-def _poll_loop():
-    """Background thread: poll openclaw for in-progress task completions."""
+def _stale_watchdog():
+    """
+    Background thread: after service restart, background dispatch threads are gone.
+    Any task still in_progress after 20 min is declared failed (avoids stuck kanban).
+    """
     while True:
         try:
             store = _read_store()
+            now = datetime.now()
             for tid, task in list(store.items()):
                 if task.get("status") != "in_progress":
                     continue
-                session_key = task.get("openclaw_session_key")
-                if not session_key:
+                started = task.get("confirmed_at") or task.get("created_at")
+                if not started:
                     continue
-                outcome = _check_session_status(session_key)
-                if outcome:
+                try:
+                    age = (now - datetime.fromisoformat(started)).total_seconds()
+                except Exception:
+                    continue
+                if age > 1200:  # 20 minutes
                     with _lock:
                         store2 = _read_store()
                         if store2.get(tid, {}).get("status") == "in_progress":
-                            store2[tid]["status"] = outcome
-                            store2[tid]["completed_at"] = datetime.now().isoformat()
+                            store2[tid]["status"] = "failed"
+                            store2[tid]["error"] = "Timed out (>20 min, likely service restart)"
+                            store2[tid]["completed_at"] = now.isoformat()
                             _write_store(store2)
-                    _write_result(tid, session_key, outcome)
-                    log.info(f"task {tid} → {outcome}")
+                    log.warning(f"task {tid} timed out after >20 min, marked failed")
         except Exception as e:
-            log.warning(f"status poller error: {e}")
-        time.sleep(15)
+            log.warning(f"watchdog error: {e}")
+        time.sleep(60)
 
 
-threading.Thread(target=_poll_loop, daemon=True, name="openclaw-poller").start()
+threading.Thread(target=_stale_watchdog, daemon=True, name="stale-watchdog").start()
 
 
 # ── Plan Generation ────────────────────────────────────────────────────────────
@@ -264,11 +293,42 @@ Include 2-3 clarifying questions with 2-4 options each. Mark recommended option 
 """
 
 
+def _get_anthropic_key() -> Optional[str]:
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    # Fall back to openclaw's stored auth profile
+    for profiles_path in [
+        Path("/root/.openclaw/agents/personal/agent/auth-profiles.json"),
+        Path.home() / ".openclaw/agents/personal/agent/auth-profiles.json",
+    ]:
+        try:
+            data = json.loads(profiles_path.read_text())
+            profiles = data.get("profiles", {})
+            for v in profiles.values():
+                if v.get("provider") == "anthropic" and v.get("token"):
+                    return v["token"]
+        except Exception:
+            pass
+    return None
+
+
 def _generate_plan(prompt: str, feedback: str = None) -> dict:
     try:
-        from openclaw.adapters.llm.client import call as llm_call
+        import anthropic
+        api_key = _get_anthropic_key()
+        if not api_key:
+            raise ValueError("No Anthropic API key found")
+        client = anthropic.Anthropic(api_key=api_key)
         feedback_section = f"\nAdditional feedback: {feedback}\n" if feedback else ""
-        raw = llm_call(_PLAN_PROMPT.format(prompt=prompt, feedback_section=feedback_section))
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": _PLAN_PROMPT.format(
+                prompt=prompt, feedback_section=feedback_section
+            )}],
+        )
+        raw = msg.content[0].text
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if match:
             return json.loads(match.group())
@@ -363,19 +423,27 @@ def replan(task_id: str, req: PlanRequest):
 
 
 def _submit_and_dispatch(task: dict) -> dict:
-    """Save task and dispatch to openclaw. Returns updated task dict."""
-    _upsert(task)
-    session_key = _dispatch_to_openclaw(task)
+    """
+    Mark task in_progress immediately, then dispatch to openclaw in a background
+    thread. The background thread blocks on sessions_send and updates status on reply.
+    Returns the updated task dict (status=in_progress).
+    """
     with _lock:
         store = _read_store()
-        if session_key:
-            store[task["id"]]["status"] = "in_progress"
-            store[task["id"]]["openclaw_session_key"] = session_key
-        else:
-            store[task["id"]]["status"] = "failed"
-            store[task["id"]]["error"] = "Failed to dispatch to openclaw gateway"
+        store[task["id"]] = task
+        store[task["id"]]["status"] = "in_progress"
+        store[task["id"]]["openclaw_session_key"] = DEV_SESSION_KEY
         _write_store(store)
-    return store[task["id"]]
+        updated = store[task["id"]]
+
+    threading.Thread(
+        target=_dispatch_background,
+        args=(task,),
+        daemon=True,
+        name=f"dispatch-{task['id']}",
+    ).start()
+
+    return updated
 
 
 @app.post("/api/submit")

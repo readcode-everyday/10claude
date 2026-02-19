@@ -9,7 +9,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def run(prompt: str, cwd: str = "/workspace/repo") -> str:
+def run(prompt: str, cwd: str = "/app/workspace/repo") -> str:
     log.info(f"claude_cli | cwd={cwd} | prompt={prompt[:100]}...")
 
     env = {**os.environ, "CLAUDE_CODE_SKIP_ONBOARDING": "1"}

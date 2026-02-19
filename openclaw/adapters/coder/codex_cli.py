@@ -8,7 +8,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def run(prompt: str, cwd: str = "/workspace/repo") -> str:
+def run(prompt: str, cwd: str = "/app/workspace/repo") -> str:
     from openai import OpenAI
 
     api_key = os.environ.get("OPENAI_API_KEY")

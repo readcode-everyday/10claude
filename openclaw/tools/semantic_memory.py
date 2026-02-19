@@ -9,7 +9,7 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
-ENTRIES = Path("/workspace/semantic_memory/entries")
+ENTRIES = Path("/app/workspace/semantic_memory/entries")
 
 
 def store_experience(task: dict, dag: dict):

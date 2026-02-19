@@ -23,9 +23,9 @@ except ImportError:
 
 from openclaw.tools.project_manager import list_projects, create_project, get_project_path
 
-QUEUE    = Path("/workspace/queue/tasks.jsonl")
-RESULTS  = Path("/workspace/results")
-LOG_FILE = Path("/logs/daemon.log")
+QUEUE    = Path("/app/workspace/queue/tasks.jsonl")
+RESULTS  = Path("/app/workspace/results")
+LOG_FILE = Path("/app/logs/daemon.log")
 
 console = Console() if _rich else None
 

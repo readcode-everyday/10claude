@@ -166,10 +166,10 @@ improves over time.
 └── .env                    # Secrets (API keys)
 ```
 
-> **Persistence rule:** containers are disposable — only data written to a
-> host-mounted path survives a restart. Mounted paths: `/workspace`, `/logs`,
-> `/backups`, `/app/openclaw`, `/app/config`. Anything written elsewhere
-> (e.g. `/tmp`) is lost on container restart.
+> **Persistence rule:** containers are disposable — the entire `~/10claude`
+> directory is mounted as `/app` in every container, so anything written under
+> `/app` survives a restart. Only `/tmp` and other unrelated container paths
+> are ephemeral.
 
 ---
 
@@ -218,13 +218,11 @@ docker compose up -d
 
 | Host path | Container path | Purpose |
 |-----------|---------------|---------|
-| `./workspace` | `/workspace` | All persistent runtime state |
-| `./logs` | `/logs` | Persistent logs |
-| `./openclaw` | `/app/openclaw` | Source code |
-| `./config` | `/app/config` | Configuration |
-| `./.env` | `/app/.env` | Secrets |
+| `~/10claude` | `/app` | Entire project — all state, code, config, logs |
 | `~/.ssh` | `/root/.ssh` | Git access |
-| `/var/run/docker.sock` | `/var/run/docker.sock` | Test container execution |
+| `~/.claude` | `/root/.claude` | Claude CLI auth |
+| `~/.codex` | `/root/.codex` | Codex auth |
+| `/var/run/docker.sock` | `/var/run/docker.sock` | Test container execution (daemon only) |
 
 ---
 

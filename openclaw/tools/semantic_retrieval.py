@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-MEMORY_DIR = Path("/workspace/semantic_memory/entries")
+MEMORY_DIR = Path("/app/workspace/semantic_memory/entries")
 
 
 def _load_entries() -> List[Dict[str, Any]]:

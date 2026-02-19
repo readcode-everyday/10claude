@@ -19,12 +19,12 @@ app = FastAPI(title="OpenClaw")
 log = logging.getLogger(__name__)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-QUEUE         = Path("/workspace/queue/tasks.jsonl")
-RESULTS       = Path("/workspace/results")
-LOG_FILE      = Path("/logs/daemon.log")
-TASK_STORE    = Path("/workspace/queue/task_store.json")
-CURRENT_TASK  = Path("/workspace/queue/current_task")
-PROJECTS_ROOT = Path("/workspace/projects")
+QUEUE         = Path("/app/workspace/queue/tasks.jsonl")
+RESULTS       = Path("/app/workspace/results")
+LOG_FILE      = Path("/app/logs/daemon.log")
+TASK_STORE    = Path("/app/workspace/queue/task_store.json")
+CURRENT_TASK  = Path("/app/workspace/queue/current_task")
+PROJECTS_ROOT = Path("/app/workspace/projects")
 STATIC_DIR    = Path(__file__).parent.parent / "static"
 
 _lock = threading.Lock()

@@ -13,7 +13,7 @@ CLAUDE_MD_TEMPLATE = Path("/app/config/CLAUDE.md")
 
 log = logging.getLogger(__name__)
 
-PROJECTS_ROOT = Path("/workspace/projects")
+PROJECTS_ROOT = Path("/app/workspace/projects")
 
 
 def list_projects() -> list:

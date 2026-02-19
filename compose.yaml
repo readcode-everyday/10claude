@@ -11,6 +11,7 @@ services:
       - ~/10claude/config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_certs:/config
+    # Note: Caddy only needs its own config, not the app directory
     environment:
       - UI_USER=${UI_USER}
       - UI_PASS_HASH=${UI_PASS_HASH}
@@ -31,10 +32,7 @@ services:
       - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
 
     volumes:
-      - ~/10claude/workspace:/workspace
-      - ~/10claude/logs:/logs
-      - ~/10claude/openclaw:/app/openclaw
-      - ~/10claude/config:/app/config
+      - ~/10claude:/app
       - ~/.ssh:/root/.ssh:ro
       - ~/.claude:/root/.claude
       - ~/.codex:/root/.codex
@@ -64,11 +62,7 @@ services:
       - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
 
     volumes:
-      - ~/10claude/workspace:/workspace
-      - ~/10claude/backups:/backups
-      - ~/10claude/logs:/logs
-      - ~/10claude/openclaw:/app/openclaw
-      - ~/10claude/config:/app/config
+      - ~/10claude:/app
       - ~/.ssh:/root/.ssh:ro
       - ~/.claude:/root/.claude
       - ~/.codex:/root/.codex

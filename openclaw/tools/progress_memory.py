@@ -71,11 +71,11 @@ def snapshot_workspace():
     """Create a timestamped tarball of /workspace as a full snapshot."""
     try:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_dir = Path("/backups")
+        backup_dir = Path("/app/backups")
         backup_dir.mkdir(parents=True, exist_ok=True)
         dest = backup_dir / f"snapshot-{ts}.tgz"
         subprocess.run(
-            ["tar", "czf", str(dest), "/workspace"],
+            ["tar", "czf", str(dest), "/app/workspace"],
             check=True, capture_output=True
         )
         log.info(f"Workspace snapshot: {dest}")

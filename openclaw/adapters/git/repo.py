@@ -8,8 +8,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-REPO_ROOT = Path("/workspace/repo")       # legacy fallback
-WORKTREES = Path("/workspace/worktrees")  # shared worktree staging area
+REPO_ROOT = Path("/app/workspace/repo")       # legacy fallback
+WORKTREES = Path("/app/workspace/worktrees")  # shared worktree staging area
 
 
 def ensure_repo(repo_root: Path = None):

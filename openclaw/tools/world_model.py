@@ -10,7 +10,7 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
-WORLD_FILE = Path("/workspace/memory/world_model.json")
+WORLD_FILE = Path("/app/workspace/memory/world_model.json")
 
 
 def _load() -> Dict[str, Any]:

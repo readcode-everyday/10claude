@@ -11,7 +11,7 @@ from openclaw.adapters.git.repo import ensure_repo, REPO_ROOT
 from openclaw.tools.long_horizon_loop import execute_long_horizon
 
 # ── Logging setup ────────────────────────────────────────────────────────────
-LOG_PATH = Path("/logs/daemon.log")
+LOG_PATH = Path("/app/logs/daemon.log")
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
@@ -25,9 +25,9 @@ logging.basicConfig(
 log = logging.getLogger("runtime_engine")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-QUEUE        = Path("/workspace/queue/tasks.jsonl")
-RESULTS      = Path("/workspace/results")
-CURRENT_TASK = Path("/workspace/queue/current_task")  # read by status_ui
+QUEUE        = Path("/app/workspace/queue/tasks.jsonl")
+RESULTS      = Path("/app/workspace/results")
+CURRENT_TASK = Path("/app/workspace/queue/current_task")  # read by status_ui
 RESULTS.mkdir(parents=True, exist_ok=True)
 
 

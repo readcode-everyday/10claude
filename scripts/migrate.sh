@@ -1,50 +1,58 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# migrate.sh — Move the full OpenClaw stack to a new machine.
+# migrate.sh — Bootstrap or migrate the OpenClaw stack.
 #
-# Run this ON THE NEW MACHINE after copying state from the old one:
+# Works for both fresh installs and moving to a new machine.
 #
-#   # On old machine — copy state (adjust user@new-host):
+# Fresh install:
+#   git clone <repo> ~/10claude && cd ~/10claude
+#   bash scripts/migrate.sh
+#
+# Migration from another machine — copy state first:
+#   # On old machine:
 #   rsync -av ~/10claude/          user@new-host:~/10claude/
 #   rsync -av ~/.openclaw/         user@new-host:~/.openclaw/
 #   rsync -av ~/.ssh/              user@new-host:~/.ssh/
-#   # Copy .env separately (not in git):
 #   scp ~/10claude/.env            user@new-host:~/10claude/.env
-#
 #   # On new machine:
 #   bash ~/10claude/scripts/migrate.sh
 #
 # What this script does:
 #   1. Install system dependencies (Docker, Node.js, npm) if missing
-#   2. Install Claude CLI and openclaw npm packages
-#   3. Validate copied state (.env, openclaw.json, workspace dirs, SSH keys)
-#   4. Inject required openclaw.json config keys
-#   5. Install openclaw gateway as a systemd user service
-#   6. Build Docker images (status-ui, sandbox)
-#   7. Start Docker containers (clean up old container names first)
-#   8. Smoke-test all components
-#   9. Remind about the one step that can't be automated (claude auth login)
+#   2. Install Claude CLI and openclaw npm packages if missing
+#   3. Create or validate .env
+#   4. Create workspace directories
+#   5. Inject required openclaw.json config keys
+#   6. Install openclaw gateway as a systemd user service
+#   7. Build Docker images (status-ui, sandbox)
+#   8. Start Docker containers
+#   9. Smoke-test all components
+#  10. Remind about the one step that can't be automated (claude auth login)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# shellcheck source=scripts/_lib.sh
-source "$ROOT/scripts/_lib.sh"
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+ok()   { echo -e "${GREEN}[✓]${NC} $*"; }
+warn() { echo -e "${YELLOW}[!]${NC} $*"; }
+info() { echo -e "${CYAN}[→]${NC} $*"; }
+die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+step() { echo ""; echo -e "${CYAN}── $* ──${NC}"; }
 
 echo ""
-echo "  OpenClaw migration"
-echo "  ══════════════════"
-echo "  Target host: $(hostname)"
-echo "  Date:        $(date '+%Y-%m-%d %H:%M')"
+echo "  OpenClaw setup"
+echo "  ══════════════"
+echo "  Host: $(hostname)"
+echo "  Date: $(date '+%Y-%m-%d %H:%M')"
 echo ""
 
 # ── 1. System dependencies ────────────────────────────────────────────────────
 step "System dependencies"
 
 if command -v docker &>/dev/null; then
-    ok "Docker already installed: $(docker --version | head -1)"
+    ok "Docker: $(docker --version | head -1)"
 else
     info "Installing Docker..."
     curl -fsSL https://get.docker.com | sh
@@ -62,9 +70,10 @@ if command -v node &>/dev/null; then
     if [ "$NODE_VER" -ge 18 ]; then
         ok "Node.js: $(node --version)"
     else
-        warn "Node.js $(node --version) is too old (need >=18) — installing via NodeSource"
+        warn "Node.js $(node --version) is too old (need >=18) — upgrading via NodeSource"
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
         sudo apt-get install -y nodejs
+        ok "Node.js: $(node --version)"
     fi
 else
     info "Installing Node.js 20..."
@@ -91,7 +100,7 @@ if command -v claude &>/dev/null; then
 else
     info "Installing Claude CLI..."
     npm install -g @anthropic-ai/claude-code
-    ok "Claude CLI: $(claude --version 2>/dev/null | head -1 || echo 'installed')"
+    ok "Claude CLI installed"
 fi
 
 if command -v openclaw &>/dev/null; then
@@ -99,28 +108,67 @@ if command -v openclaw &>/dev/null; then
 else
     info "Installing openclaw..."
     npm install -g openclaw
-    ok "openclaw: $(openclaw --version 2>/dev/null || echo 'installed')"
+    ok "openclaw installed"
 fi
 
-# ── 3. Validate copied state ──────────────────────────────────────────────────
-step "Validating copied state"
-
-[ -f "$HOME/.openclaw/openclaw.json" ] \
-    || die "~/.openclaw/openclaw.json not found. Did you rsync ~/.openclaw/ from the old machine?"
-ok "~/.openclaw/openclaw.json present"
-
-[ -f "$ROOT/.env" ] \
-    || die ".env not found. Copy it: scp old-host:~/10claude/.env ~/10claude/.env"
-ok ".env present"
-grep -q "REPLACE_ME" "$ROOT/.env" \
-    && die ".env still has REPLACE_ME placeholders — edit it first" || true
-
-if [ -d "$ROOT/workspace/projects" ]; then
-    PROJECT_COUNT=$(find "$ROOT/workspace/projects" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
-    ok "workspace/projects present ($PROJECT_COUNT project(s))"
+if command -v gh &>/dev/null; then
+    ok "GitHub CLI: $(gh --version | head -1)"
 else
-    warn "workspace/projects not found — creating empty workspace structure"
+    info "Installing GitHub CLI (gh)..."
+    type -p curl &>/dev/null || sudo apt-get install -y curl
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    sudo apt-get update -q && sudo apt-get install -y gh
+    ok "GitHub CLI installed"
 fi
+
+# ── 3. .env ───────────────────────────────────────────────────────────────────
+step ".env"
+
+if [ ! -f "$ROOT/.env" ]; then
+    warn ".env not found — creating from template"
+    HOST_UID_VAL=$(id -u)
+    HOST_GID_VAL=$(id -g)
+    GIT_USER=$(git config --global user.name 2>/dev/null || echo "your-name")
+    GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "your@email.com")
+    GH_USER=$(gh api user --jq .login 2>/dev/null || echo "your-github-username")
+    GH_TOKEN=$(gh auth token 2>/dev/null || echo "ghp_REPLACE_ME")
+    cat > "$ROOT/.env" <<EOF
+# Host user IDs — used to chown project repos created inside containers
+HOST_UID=$HOST_UID_VAL
+HOST_GID=$HOST_GID_VAL
+
+# Git identity (for auto-commits inside sandbox containers)
+GIT_AUTHOR_NAME=$GIT_USER
+GIT_AUTHOR_EMAIL=$GIT_EMAIL
+GIT_COMMITTER_NAME=$GIT_USER
+GIT_COMMITTER_EMAIL=$GIT_EMAIL
+
+# API key for plan generation (must be sk-ant-api03-..., not an OAuth token)
+ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
+
+# GitHub integration — create private repos and push commits automatically
+# Requires 'repo' scope. Get with: gh auth token  (after: gh auth login)
+GITHUB_TOKEN=$GH_TOKEN
+GITHUB_USER=$GH_USER
+
+# Web UI basic auth (default password: openclaw)
+# To change: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'newpass'
+# Double every dollar sign in the hash (e.g. \$2a → \$\$2a)
+UI_USER=admin
+UI_PASS_HASH=\$\$2a\$\$14\$\$OjGuIIHJeAHNMNt8UstDwO44MAX3tFsdsmX/5Y7yIV28xV9ZhDWUm
+EOF
+    warn ".env created — edit ANTHROPIC_API_KEY if needed, then re-run."
+    exit 0
+fi
+
+ok ".env present"
+grep -q "REPLACE_ME" "$ROOT/.env" && die ".env still has placeholder values — edit it first" || true
+
+# ── 4. Workspace directories ──────────────────────────────────────────────────
+step "Workspace"
 
 mkdir -p \
     "$ROOT/workspace/queue" \
@@ -143,49 +191,142 @@ else
     warn "Copy from old machine or generate: ssh-keygen -t ed25519"
 fi
 
-# ── 4. openclaw.json ──────────────────────────────────────────────────────────
-step "openclaw.json required config"
-inject_openclaw_config
+# ── 5. openclaw.json — inject required config keys ────────────────────────────
+step "openclaw.json"
 
-# ── 5. openclaw gateway (systemd) ─────────────────────────────────────────────
+[ -f "$HOME/.openclaw/openclaw.json" ] \
+    || die "~/.openclaw/openclaw.json not found — run 'openclaw configure' first, then re-run this script"
+
+# Merge required keys without clobbering wizard-set values (auth token, agents, Telegram…)
+python3 - "$HOME/.openclaw/openclaw.json" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+cfg = json.loads(open(path).read())
+
+# gateway.tools.allow — whitelist sessions_send/spawn for HTTP /tools/invoke
+gw = cfg.setdefault("gateway", {})
+allow = gw.setdefault("tools", {}).setdefault("allow", [])
+for tool in ["sessions_send", "sessions_spawn"]:
+    if tool not in allow:
+        allow.append(tool)
+
+# top-level tools — cross-agent visibility and routing
+tools = cfg.setdefault("tools", {})
+tools.setdefault("sessions", {})["visibility"] = "all"
+tools.setdefault("agentToAgent", {})["enabled"] = True
+
+open(path, "w").write(json.dumps(cfg, indent=2))
+print("  gateway.tools.allow, tools.sessions.visibility, tools.agentToAgent — OK")
+PYEOF
+ok "openclaw.json required keys present"
+
+# ── 6. openclaw gateway (systemd) ─────────────────────────────────────────────
 step "openclaw gateway"
-install_gateway
 
-# ── 6. Docker images ──────────────────────────────────────────────────────────
+info "Installing openclaw gateway systemd service..."
+openclaw gateway install --port 18789 --force 2>/dev/null \
+    || openclaw gateway install --port 18789
+
+# Patch ExecStart to run under the docker group so the gateway can manage
+# sandbox containers. systemd user services cannot use SupplementaryGroups,
+# so we wrap the node command with `sg docker`.
+SERVICE_FILE="$HOME/.config/systemd/user/openclaw-gateway.service"
+if [ -f "$SERVICE_FILE" ] && ! grep -q "sg docker" "$SERVICE_FILE"; then
+    info "Patching gateway service to run with docker group..."
+    python3 - "$SERVICE_FILE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+content = open(path).read()
+def patch(m):
+    orig = m.group(1)
+    return f"ExecStart=/usr/bin/sg docker -c '{orig}'"
+content = re.sub(r'^ExecStart=(.+)$', patch, content, flags=re.MULTILINE)
+open(path, 'w').write(content)
+print("  ExecStart wrapped with sg docker")
+PYEOF
+    ok "Gateway service patched with sg docker wrapper"
+fi
+
+systemctl --user daemon-reload
+systemctl --user enable openclaw-gateway 2>/dev/null || true
+systemctl --user restart openclaw-gateway
+
+GATEWAY_READY=false
+for i in $(seq 1 20); do
+    openclaw gateway health &>/dev/null 2>&1 && GATEWAY_READY=true && break
+    sleep 1
+done
+$GATEWAY_READY \
+    && ok "openclaw gateway running on :18789" \
+    || die "openclaw gateway failed to start — check: journalctl --user -u openclaw-gateway -n 30"
+
+# ── 7. Docker images ──────────────────────────────────────────────────────────
 step "Docker images"
-build_images
 
-# ── 7. Docker containers ──────────────────────────────────────────────────────
+info "Building status-ui image..."
+docker compose build status-ui 2>&1 | grep -E "(DONE|error|ERROR|Successfully)" || true
+ok "status-ui image built"
+
+info "Building sandbox image..."
+docker build -t openclaw-sandbox:latest -f Dockerfile.sandbox . \
+    2>&1 | grep -E "(DONE|error|ERROR|Successfully built)" || true
+ok "openclaw-sandbox:latest built"
+
+# ── 8. Containers ─────────────────────────────────────────────────────────────
 step "Containers"
 
-# Clean up leftover containers from old machine names (|| true so set -e doesn't abort)
+# Remove leftover containers from old machine / old service names
 docker stop openclaw runtime-daemon 2>/dev/null; docker rm openclaw runtime-daemon 2>/dev/null; true
 
-start_containers
+info "Starting containers..."
+docker compose up -d --remove-orphans
+ok "Containers started"
 
-# ── 8. Smoke tests ────────────────────────────────────────────────────────────
+# ── 9. Smoke tests ────────────────────────────────────────────────────────────
 step "Smoke tests"
-smoke_tests
 
-# ── 9. Summary ────────────────────────────────────────────────────────────────
+UI_OK=false
+for i in $(seq 1 30); do
+    curl -sf http://localhost:18888/api/health >/dev/null 2>&1 && UI_OK=true && break
+    sleep 1
+done
+$UI_OK \
+    && ok "status-ui: $(curl -s http://localhost:18888/api/health)" \
+    || warn "status-ui not responding after 30 s — check: docker compose logs status-ui"
+
+openclaw gateway health &>/dev/null \
+    && ok "openclaw gateway: OK" \
+    || warn "openclaw gateway: not responding"
+
+echo ""
+docker compose ps --format "  {{.Name}}  {{.Status}}"
+
+# ── 10. Summary ────────────────────────────────────────────────────────────────
 echo ""
 echo "  ════════════════════════════════════════════════════════════"
-echo "  Migration complete on $(hostname)"
+echo "  OpenClaw is running on $(hostname)"
 echo ""
 echo "  Services:"
 echo "    openclaw gateway  →  http://localhost:18789  (systemd)"
 echo "    status-ui         →  http://localhost:18888  (docker)"
 echo "    caddy (TLS+auth)  →  https://localhost       (docker)"
 echo ""
-echo -e "  ${RED}REQUIRED MANUAL STEP — cannot be automated:${NC}"
+echo -e "  ${RED}REQUIRED — cannot be automated:${NC}"
 echo ""
-echo "    claude auth login"
+echo "    claude auth login           # Claude CLI device auth (always required)"
+echo "    gh auth login               # GitHub CLI — needed for repo creation + push"
 echo ""
-echo "  Claude CLI auth is device-bound. You must re-authenticate"
-echo "  interactively on this machine before any coding tasks will run."
+echo "  Claude CLI auth is device-bound. Re-authenticate on every new machine."
+echo "  Credentials are stored in ~/.claude/.credentials.json and are bind-mounted"
+echo "  into each worker container — workers authenticate using the same session."
 echo ""
-echo "  After auth, submit a small test task at http://localhost:18888"
-echo "  to verify sandbox containers spin up correctly."
+echo "  After gh auth login, update .env with your token:"
+echo "    GITHUB_TOKEN=\$(gh auth token)"
+echo "    GITHUB_USER=\$(gh api user --jq .login)"
+echo "  Then: docker compose up -d --force-recreate status-ui worker-1 worker-2 worker-3"
+echo ""
+echo "  After auth, submit a test task at http://localhost:18888 to verify"
+echo "  all 3 workers pick up tasks in parallel."
 echo ""
 if [ -d "$HOME/.ssh" ] && ! ls "$HOME/.ssh"/id_* &>/dev/null 2>&1; then
     echo -e "  ${YELLOW}ALSO NEEDED:${NC} SSH keys (git push to private repos will fail)"

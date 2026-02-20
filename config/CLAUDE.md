@@ -23,6 +23,21 @@
 
 ---
 
+## Parallel Development — Goal Sub-Tasks
+
+When you are executing a sub-task that was part of a decomposed goal, multiple workers
+may be committing to the same branch simultaneously. Follow this flow **every time**:
+
+1. Complete all file changes.
+2. `git add -A`
+3. `git pull --rebase`  — incorporate any commits from parallel workers first.
+4. Resolve conflicts if any (`git status` → edit → `git add` → `git rebase --continue`).
+5. `git add -A`
+6. `git commit -m "feat: <task title>"`
+
+**Never leave changes uncommitted.** Dependent tasks read the repo state directly;
+if your changes are not in git, the next task will not see them.
+
 ## Parallel Development (Git Worktree)
 
 Multiple workers operate in parallel, each in an isolated git worktree.

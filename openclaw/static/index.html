@@ -3,128 +3,140 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenClaw — Task Manager</title>
+<title>OpenClaw — Dev Manager</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@11/marked.min.js"></script>
 <style>
 :root {
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface2: #f8f9fa;
-  --border: #e2e8f0;
-  --text: #1a202c;
-  --text2: #64748b;
-  --text3: #94a3b8;
-  --primary: #6366f1;
-  --primary-bg: #eef2ff;
-  --green: #16a34a;
-  --green-bg: #f0fdf4;
-  --blue: #2563eb;
-  --blue-bg: #eff6ff;
-  --purple: #7c3aed;
-  --purple-bg: #f5f3ff;
-  --red: #dc2626;
-  --red-bg: #fff1f2;
-  --gray: #6b7280;
-  --gray-bg: #f9fafb;
-  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --bg: #f4f5f7; --surface: #ffffff; --surface2: #f8f9fa;
+  --border: #e2e8f0; --text: #1a202c; --text2: #64748b; --text3: #94a3b8;
+  --primary: #6366f1; --primary-bg: #eef2ff;
+  --green: #16a34a; --green-bg: #f0fdf4;
+  --blue: #2563eb; --blue-bg: #eff6ff;
+  --purple: #7c3aed; --purple-bg: #f5f3ff;
+  --red: #dc2626; --red-bg: #fff1f2;
+  --gray: #6b7280; --gray-bg: #f9fafb;
+  --shadow: 0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
   --shadow-lg: 0 10px 25px rgba(0,0,0,.12);
-  --radius: 10px;
-  --radius-sm: 6px;
+  --radius: 10px; --radius-sm: 6px;
 }
 [data-theme="dark"] {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface2: #22263a;
-  --border: #2d3148;
-  --text: #e8eaf0;
-  --text2: #8892b0;
-  --text3: #4a5568;
-  --primary-bg: #1e1b4b;
-  --green-bg: #052e16;
-  --blue-bg: #0c1a3a;
-  --purple-bg: #1e1040;
-  --red-bg: #2d0a0a;
-  --gray-bg: #111318;
-  --shadow: 0 1px 3px rgba(0,0,0,.3);
-  --shadow-lg: 0 10px 25px rgba(0,0,0,.5);
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+  --border: #2d3148; --text: #e8eaf0; --text2: #8892b0; --text3: #4a5568;
+  --primary-bg: #1e1b4b; --green-bg: #052e16; --blue-bg: #0c1a3a;
+  --purple-bg: #1e1040; --red-bg: #2d0a0a; --gray-bg: #111318;
+  --shadow: 0 1px 3px rgba(0,0,0,.3); --shadow-lg: 0 10px 25px rgba(0,0,0,.5);
 }
-
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
 
 /* ── Header ── */
-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 20px; background: var(--surface);
-  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
-}
-.header-left { display: flex; align-items: center; gap: 12px; }
-.logo { width: 36px; height: 36px; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+header { display: flex; align-items: center; gap: 12px; padding: 0 20px;
+         background: var(--surface); border-bottom: 1px solid var(--border);
+         position: sticky; top: 0; z-index: 100; height: 48px; }
+.logo { width: 32px; height: 32px; background: linear-gradient(135deg,#6366f1,#8b5cf6);
         border-radius: 8px; display: flex; align-items: center; justify-content: center;
-        font-size: 18px; }
-h1 { font-size: 16px; font-weight: 600; }
-.task-count { font-size: 12px; color: var(--text2); }
-.header-right { display: flex; gap: 8px; }
+        font-size: 16px; flex-shrink: 0; }
+.header-title { font-size: 15px; font-weight: 600; }
+.task-count { font-size: 11px; color: var(--text2); }
 .icon-btn { background: var(--surface2); border: 1px solid var(--border);
-            border-radius: var(--radius-sm); padding: 6px 10px; cursor: pointer;
-            color: var(--text2); font-size: 14px; transition: all .15s; }
+            border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer;
+            color: var(--text2); font-size: 14px; transition: all .15s; flex-shrink: 0; }
 .icon-btn:hover { background: var(--border); color: var(--text); }
 
-/* ── Input Area ── */
-.input-area {
-  margin: 16px 20px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 16px; box-shadow: var(--shadow);
-}
+/* ── Tab Nav ── */
+.tab-nav { background: var(--surface); border-bottom: 2px solid var(--border);
+           position: sticky; top: 48px; z-index: 99;
+           display: flex; padding: 0 20px; gap: 0; }
+.tab-btn { padding: 0 28px; height: 44px; font-size: 15px; font-weight: 600;
+           border: none; border-bottom: 3px solid transparent; margin-bottom: -2px;
+           background: none; cursor: pointer; color: var(--text2);
+           display: flex; align-items: center; gap: 8px; transition: all .15s; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-btn:hover:not(.active) { color: var(--text); background: var(--surface2); }
+
+/* ── Plan Tab ── */
+.plan-tab { display: flex; flex-direction: column; min-height: calc(100vh - 92px); }
+
+.compose-area { margin: 16px 20px 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+
 .textarea-wrap { position: relative; }
-textarea#task-input {
-  width: 100%; min-height: 72px; resize: vertical;
+textarea#task-input { width: 100%; min-height: 72px; resize: vertical;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 10px 44px 10px 12px; font-size: 14px; font-family: inherit;
-  background: var(--surface); color: var(--text); outline: none; transition: border .15s;
-}
+  background: var(--surface); color: var(--text); outline: none; transition: border .15s; }
 textarea#task-input:focus { border-color: var(--primary); }
 textarea#task-input::placeholder { color: var(--text3); }
-#mic-btn { position: absolute; right: 10px; top: 10px;
-           background: none; border: none; cursor: pointer; font-size: 18px;
-           color: var(--text2); padding: 2px; }
+#mic-btn { position: absolute; right: 10px; top: 10px; background: none; border: none;
+           cursor: pointer; font-size: 18px; color: var(--text2); padding: 2px; }
 #mic-btn.recording { color: var(--red); animation: pulse 1s infinite; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
 
-.input-row { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
-.input-row label { font-size: 12px; color: var(--text2); white-space: nowrap; }
-select {
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 8px; background: var(--surface); color: var(--text);
-  font-size: 13px; cursor: pointer; flex: 1; min-width: 0;
-}
-.plan-mode-label { display: flex; align-items: center; gap: 6px; cursor: pointer;
-                   font-size: 13px; color: var(--text2); white-space: nowrap; }
-.plan-mode-label input { accent-color: var(--purple); }
-.shortcuts-hint { font-size: 11px; color: var(--text3); margin-left: auto; }
-.btn-add {
-  padding: 8px 20px; background: var(--primary); color: white; border: none;
-  border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
-  cursor: pointer; transition: opacity .15s; white-space: nowrap;
-}
+/* ── Project Picker ── */
+.project-picker { margin: 12px 0 0; }
+.picker-label { font-size: 11px; font-weight: 700; color: var(--text2);
+                text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.proj-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.proj-pill { display: flex; align-items: center; gap: 5px; padding: 5px 13px;
+             border: 1.5px solid var(--border); border-radius: 20px; cursor: pointer;
+             font-size: 13px; transition: all .15s; background: var(--surface);
+             user-select: none; }
+.proj-pill:hover { border-color: var(--primary); color: var(--primary); }
+.proj-pill.selected { border-color: var(--primary); background: var(--primary-bg); color: var(--primary); font-weight: 600; }
+.proj-pill.new-pill { border-style: dashed; color: var(--text2); }
+.proj-pill.new-pill.selected { border-color: var(--green); background: var(--green-bg); color: var(--green); }
+.proj-pill .pill-time { font-size: 10px; color: var(--text3); }
+.proj-pill.selected .pill-time { color: var(--primary); opacity: .7; }
+
+.new-proj-row { display: none; margin-top: 10px; display: none;
+                align-items: center; gap: 8px; }
+.new-proj-row.visible { display: flex; }
+.new-proj-row input { flex: 1; padding: 6px 10px; border: 1px solid var(--border);
+                       border-radius: var(--radius-sm); font-size: 13px;
+                       background: var(--surface); color: var(--text); outline: none; }
+.new-proj-row input:focus { border-color: var(--green); }
+.new-proj-row .hint { font-size: 11px; color: var(--text3); }
+
+/* ── Compose Actions ── */
+.compose-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.btn-decompose { padding: 8px 18px; background: var(--purple); color: white; border: none;
+                 border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
+                 cursor: pointer; transition: opacity .15s; white-space: nowrap; }
+.btn-decompose:hover { opacity: .88; }
+.btn-decompose:disabled { opacity: .5; cursor: not-allowed; }
+.btn-add { padding: 8px 16px; background: var(--primary); color: white; border: none;
+           border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
+           cursor: pointer; transition: opacity .15s; white-space: nowrap; }
 .btn-add:hover { opacity: .88; }
 .btn-add:disabled { opacity: .5; cursor: not-allowed; }
+.dep-select { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.dep-select label { font-size: 12px; color: var(--text2); white-space: nowrap; }
+select { border: 1px solid var(--border); border-radius: var(--radius-sm);
+         padding: 5px 8px; background: var(--surface); color: var(--text);
+         font-size: 13px; cursor: pointer; }
+.shortcuts-hint { font-size: 11px; color: var(--text3); }
 
-/* ── Kanban ── */
-.kanban { display: flex; gap: 12px; padding: 0 20px 20px; overflow-x: auto;
-          min-height: calc(100vh - 280px); }
-.column { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
-.col-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 4px; font-size: 12px; font-weight: 600; letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
-  font-size: 11px; font-weight: 700;
-}
+/* ── Plan Goals Area ── */
+.plan-goals-area { flex: 1; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+.plan-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+              flex: 1; padding: 60px 20px; color: var(--text3); text-align: center; }
+.plan-empty-icon { font-size: 36px; margin-bottom: 14px; opacity: .5; }
+.plan-empty-title { font-size: 15px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+.plan-empty-sub { font-size: 13px; }
+
+/* ── Status Tab ── */
+.status-tab { display: flex; flex-direction: column; }
+.kanban { display: flex; gap: 12px; padding: 16px 20px 24px; overflow-x: auto;
+          min-height: calc(100vh - 52px); }
+.column { flex: 1; min-width: 190px; display: flex; flex-direction: column; gap: 8px; }
+.col-header { display: flex; align-items: center; justify-content: space-between;
+              padding: 8px 4px; font-size: 12px; font-weight: 600;
+              letter-spacing: .04em; text-transform: uppercase; }
+.badge { display: inline-flex; align-items: center; justify-content: center;
+         min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+         font-size: 11px; font-weight: 700; }
 .col-pending   .col-header { color: var(--gray); }
 .col-pending   .badge { background: #e5e7eb; color: var(--gray); }
 .col-in_progress .col-header { color: var(--blue); }
@@ -137,132 +149,135 @@ select {
 .col-failed    .badge { background: var(--red-bg); color: var(--red); }
 .col-cancelled .col-header { color: var(--text3); }
 .col-cancelled .badge { background: var(--border); color: var(--text3); }
-
 .col-body { display: flex; flex-direction: column; gap: 8px; }
 .empty-col { padding: 20px 8px; text-align: center; color: var(--text3); font-size: 12px; }
 
-/* ── Cards ── */
-.card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow);
-  cursor: default; transition: box-shadow .15s;
-}
+/* ── Task Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow);
+        cursor: default; transition: box-shadow .15s; }
 .card:hover { box-shadow: var(--shadow-lg); }
-.card-review    { border-left: 3px solid var(--purple); background: var(--purple-bg); }
+.card-review     { border-left: 3px solid var(--purple); background: var(--purple-bg); }
 .card-in_progress { border-left: 3px solid var(--blue); }
-.card-failed    { border-left: 3px solid var(--red); background: var(--red-bg); }
-.card-completed { border-left: 3px solid var(--green); }
-
+.card-failed     { border-left: 3px solid var(--red); background: var(--red-bg); }
+.card-completed  { border-left: 3px solid var(--green); }
 .card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .task-id { font-size: 11px; font-weight: 700; color: var(--text3); font-family: monospace; }
-.status-badge {
-  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
-  text-transform: uppercase; letter-spacing: .04em;
-}
-.badge-review    { background: var(--purple-bg); color: var(--purple); }
-.badge-pending   { background: #e5e7eb; color: var(--gray); }
+.status-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+                text-transform: uppercase; letter-spacing: .04em; }
+.badge-review     { background: var(--purple-bg); color: var(--purple); }
+.badge-pending    { background: #e5e7eb; color: var(--gray); }
 .badge-in_progress { background: var(--blue-bg); color: var(--blue); }
-.badge-completed { background: var(--green-bg); color: var(--green); }
-.badge-failed    { background: var(--red-bg); color: var(--red); }
-.badge-cancelled { background: var(--border); color: var(--text3); }
-.plan-tag { font-size: 10px; padding: 2px 6px; border-radius: 10px;
-            background: var(--purple-bg); color: var(--purple); font-weight: 600; }
+.badge-completed  { background: var(--green-bg); color: var(--green); }
+.badge-failed     { background: var(--red-bg); color: var(--red); }
+.badge-cancelled  { background: var(--border); color: var(--text3); }
 .card-actions { margin-left: auto; display: flex; gap: 4px; }
-.action-btn {
-  background: none; border: none; cursor: pointer; padding: 2px 5px;
-  border-radius: 4px; color: var(--text3); font-size: 14px; transition: all .1s;
-}
+.action-btn { background: none; border: none; cursor: pointer; padding: 2px 5px;
+              border-radius: 4px; color: var(--text3); font-size: 14px; transition: all .1s; }
 .action-btn:hover { background: var(--border); color: var(--text); }
 .action-btn.danger:hover { background: var(--red-bg); color: var(--red); }
-
 .card-prompt { font-size: 13px; color: var(--text); line-height: 1.5;
                display: -webkit-box; -webkit-line-clamp: 4;
                -webkit-box-orient: vertical; overflow: hidden; }
 .card-prompt.expanded { -webkit-line-clamp: unset; overflow: visible; }
-.card-footer { display: flex; align-items: center; justify-content: space-between;
-               margin-top: 10px; }
+.card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .card-time { font-size: 11px; color: var(--text3); }
-
 .card-expanded { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-.card-expanded .prose { font-size: 12px; color: var(--text2); max-height: 200px;
-                        overflow-y: auto; }
+.card-expanded .prose { font-size: 12px; color: var(--text2); max-height: 200px; overflow-y: auto; }
+
+/* ── Goal Cards ── */
+.goal-card { border-left: 3px solid var(--purple); background: var(--purple-bg); }
+.goal-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.goal-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+              background: var(--purple); color: white; text-transform: uppercase;
+              letter-spacing: .04em; flex-shrink: 0; }
+.goal-tasks { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.goal-task-item { background: var(--surface); border: 1px solid var(--border);
+                  border-radius: var(--radius-sm); padding: 8px 10px; }
+.goal-task-num { font-size: 11px; font-weight: 700; color: var(--purple); margin-right: 4px; }
+.goal-task-title { font-size: 13px; font-weight: 500; }
+.goal-task-dep { font-size: 11px; color: var(--text3); margin-left: 6px; }
+.goal-task-prompt { font-size: 12px; color: var(--text2); margin: 3px 0 2px; }
+.goal-task-ac { font-size: 11px; color: var(--text3); font-family: 'Menlo',monospace; }
+.goal-feedback { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.goal-feedback textarea { width: 100%; min-height: 52px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 13px; font-family: inherit; background: var(--surface);
+  color: var(--text); resize: vertical; outline: none; }
+.goal-feedback textarea:focus { border-color: var(--purple); }
+.goal-feedback-btns { display: flex; gap: 8px; margin-top: 8px; }
+.btn-refine { padding: 7px 14px; background: var(--purple-bg); color: var(--purple);
+              border: 1.5px solid var(--purple); border-radius: var(--radius-sm);
+              font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity .15s; }
+.btn-refine:hover { opacity: .8; }
+.btn-refine:disabled { opacity: .5; cursor: not-allowed; }
+.btn-approve { padding: 7px 14px; background: var(--green); color: white; border: none;
+               border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+               cursor: pointer; transition: opacity .15s; }
+.btn-approve:hover { opacity: .88; }
+.btn-approve:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Modal ── */
-.modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.5);
-  display: flex; align-items: flex-start; justify-content: center;
-  z-index: 1000; padding: 20px; overflow-y: auto;
-}
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5);
+                 display: flex; align-items: flex-start; justify-content: center;
+                 z-index: 1000; padding: 20px; overflow-y: auto; }
 .modal-overlay.hidden { display: none; }
-.modal {
-  background: var(--surface); border-radius: 12px; width: 100%; max-width: 800px;
-  box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
-  max-height: calc(100vh - 40px); overflow: hidden;
-}
-.modal-header {
-  display: flex; align-items: center; gap: 10px; padding: 16px 20px;
-  border-bottom: 1px solid var(--border); flex-shrink: 0;
-}
+.modal { background: var(--surface); border-radius: 12px; width: 100%; max-width: 800px;
+         box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+         max-height: calc(100vh - 40px); overflow: hidden; }
+.modal-header { display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+                border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .modal-title { font-size: 14px; font-weight: 500; color: var(--text); flex: 1;
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .modal-close { background: none; border: none; font-size: 20px; cursor: pointer;
                color: var(--text2); padding: 0 4px; line-height: 1; }
 .modal-body { flex: 1; overflow-y: auto; padding: 20px; }
 
-/* ── Prose (markdown) ── */
+/* ── Prose ── */
 .prose h1 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
 .prose h2 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; }
 .prose h3 { font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
 .prose p  { margin-bottom: 8px; }
-.prose ul, .prose ol { padding-left: 20px; margin-bottom: 8px; }
+.prose ul,.prose ol { padding-left: 20px; margin-bottom: 8px; }
 .prose li { margin-bottom: 4px; }
 .prose code { background: var(--surface2); padding: 1px 5px; border-radius: 4px;
-              font-size: 12px; font-family: 'Menlo', monospace; }
+              font-size: 12px; font-family: 'Menlo',monospace; }
 .prose pre { background: var(--surface2); border: 1px solid var(--border);
-             border-radius: var(--radius-sm); padding: 12px; margin: 8px 0;
-             overflow-x: auto; }
+             border-radius: var(--radius-sm); padding: 12px; margin: 8px 0; overflow-x: auto; }
 .prose pre code { background: none; padding: 0; }
 .prose strong { font-weight: 600; }
 
 /* ── Questions ── */
-.questions-section {
-  margin-top: 20px; background: var(--blue-bg); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px;
-}
+.questions-section { margin-top: 20px; background: var(--blue-bg);
+                     border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
 .questions-title { font-size: 13px; font-weight: 600; color: var(--blue);
                    margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
 .question-block { margin-bottom: 16px; }
 .question-block:last-child { margin-bottom: 0; }
 .question-text { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
 .options { display: flex; flex-wrap: wrap; gap: 8px; }
-.option-btn {
-  padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 20px;
-  background: var(--surface); color: var(--text); font-size: 12px;
-  cursor: pointer; transition: all .15s; text-align: left; line-height: 1.4;
-}
+.option-btn { padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 20px;
+              background: var(--surface); color: var(--text); font-size: 12px;
+              cursor: pointer; transition: all .15s; }
 .option-btn:hover { border-color: var(--blue); color: var(--blue); }
 .option-btn.selected { border-color: var(--blue); background: var(--blue-bg);
                        color: var(--blue); font-weight: 500; }
 
-/* ── Feedback ── */
+/* ── Feedback (modal) ── */
 .feedback-area { margin-top: 16px; display: none; }
 .feedback-area.visible { display: block; }
-.feedback-area textarea {
-  width: 100%; min-height: 60px; border: 1px solid var(--border);
+.feedback-area textarea { width: 100%; min-height: 60px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px;
   font-family: inherit; background: var(--surface); color: var(--text);
-  resize: vertical; outline: none;
-}
+  resize: vertical; outline: none; }
 .feedback-area textarea:focus { border-color: var(--primary); }
 
 /* ── Modal Footer ── */
-.modal-footer {
-  display: flex; gap: 10px; padding: 16px 20px;
-  border-top: 1px solid var(--border); flex-shrink: 0;
-}
-.btn-primary { padding: 9px 20px; background: var(--green); color: white;
-               border: none; border-radius: var(--radius-sm); font-size: 14px;
-               font-weight: 500; cursor: pointer; transition: opacity .15s; }
+.modal-footer { display: flex; gap: 10px; padding: 16px 20px;
+                border-top: 1px solid var(--border); flex-shrink: 0; }
+.btn-primary { padding: 9px 20px; background: var(--green); color: white; border: none;
+               border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
+               cursor: pointer; transition: opacity .15s; }
 .btn-primary:hover { opacity: .88; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 .btn-secondary { padding: 9px 16px; background: var(--purple-bg); color: var(--purple);
@@ -274,15 +289,11 @@ select {
                 font-size: 14px; cursor: pointer; transition: all .15s; margin-left: auto; }
 .btn-tertiary:hover { background: var(--border); }
 
-/* ── Spinner ── */
+/* ── Spinner & Toasts ── */
 .spinner { display: inline-block; width: 16px; height: 16px;
            border: 2px solid var(--border); border-top-color: var(--primary);
            border-radius: 50%; animation: spin .6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.loading-state { display: flex; align-items: center; gap: 8px;
-                 color: var(--text2); font-size: 13px; padding: 8px 0; }
-
-/* ── Toasts ── */
 #toasts { position: fixed; bottom: 20px; right: 20px; z-index: 2000;
           display: flex; flex-direction: column; gap: 8px; }
 .toast { padding: 10px 16px; border-radius: var(--radius-sm); font-size: 13px;
@@ -290,83 +301,115 @@ select {
          animation: slideIn .2s ease; max-width: 300px; }
 .toast.success { background: var(--green); }
 .toast.error   { background: var(--red); }
-@keyframes slideIn { from { transform: translateY(20px); opacity: 0; }
-                     to   { transform: translateY(0);    opacity: 1; } }
+@keyframes slideIn { from { transform: translateY(20px); opacity:0 }
+                     to   { transform: translateY(0);    opacity:1 } }
 </style>
 </head>
 <body>
 
 <!-- Header -->
 <header>
-  <div class="header-left">
-    <div class="logo">🐾</div>
-    <div>
-      <h1>OpenClaw Dev Manager</h1>
-      <div class="task-count" id="task-count">0 tasks</div>
-    </div>
+  <div class="logo">🐾</div>
+  <div>
+    <div class="header-title">OpenClaw</div>
+    <div class="task-count" id="task-count">0 tasks</div>
   </div>
-  <div class="header-right">
-    <button class="icon-btn" id="theme-btn" title="Toggle dark mode">🌙</button>
-  </div>
+  <button class="icon-btn" id="theme-btn" title="Toggle dark mode" style="margin-left:auto">🌙</button>
 </header>
 
-<!-- Input Area -->
-<div class="input-area">
-  <div class="textarea-wrap">
-    <textarea id="task-input" placeholder="Add new task... (Cmd/Ctrl+Enter to submit)"></textarea>
-    <button id="mic-btn" title="Voice input">🎤</button>
+<!-- Tab Nav -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="plan" onclick="switchTab('plan')">✦ Plan</button>
+  <button class="tab-btn" data-tab="status" onclick="switchTab('status')">◎ Status</button>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════
+     PLAN TAB
+     ══════════════════════════════════════════════════════════════ -->
+<div id="tab-plan" class="plan-tab">
+
+  <!-- Compose area -->
+  <div class="compose-area">
+    <div class="textarea-wrap">
+      <textarea id="task-input" placeholder="Describe a goal to decompose, or a quick task to add…  (Cmd/Ctrl+Enter to decompose)"></textarea>
+      <button id="mic-btn" title="Voice input">🎤</button>
+    </div>
+
+    <!-- Project picker -->
+    <div class="project-picker">
+      <div class="picker-label">Project</div>
+      <div class="proj-pills" id="proj-pills">
+        <span style="font-size:12px;color:var(--text3)">Loading projects…</span>
+      </div>
+      <div class="new-proj-row" id="new-proj-row">
+        <input type="text" id="new-proj-name" placeholder="project-name (letters, digits, hyphens)"
+               oninput="updateNewProjBtn()"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();confirmNewProject()}
+                          if(event.key==='Escape')selectProject(projects[0]?.name||'')">
+        <button class="btn-add" id="create-proj-btn" onclick="confirmNewProject()"
+                style="padding:6px 12px;font-size:13px" disabled>✓ Create</button>
+        <span class="hint">Letters, digits, hyphens, underscores only</span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="compose-actions">
+      <button class="btn-decompose" id="decompose-btn">✦ Decompose Goal</button>
+      <button class="btn-add" id="submit-btn">+ Quick Task</button>
+      <div class="dep-select" id="dep-select-wrap" style="display:none">
+        <label>After:</label>
+        <select id="depends-on" style="max-width:200px">
+          <option value="">None</option>
+        </select>
+      </div>
+      <button class="icon-btn" onclick="toggleDepSelect()" title="Set prerequisite task"
+              style="margin-left:4px;font-size:12px;padding:5px 8px">⛓ Dep</button>
+      <span class="shortcuts-hint" style="margin-left:auto">Cmd/Ctrl+Enter = Decompose</span>
+    </div>
   </div>
-  <div class="input-row" style="margin-top:10px">
-    <label>Prerequisite:</label>
-    <select id="depends-on" style="max-width:220px">
-      <option value="">None (start immediately)</option>
-    </select>
-    <label style="margin-left:8px">Project:</label>
-    <select id="project-select" style="max-width:180px">
-      <option value="">None</option>
-    </select>
-    <input id="new-project-input" type="text" placeholder="project-name" title="Letters, digits, hyphens, underscores"
-      style="display:none;width:130px;margin-left:4px;padding:4px 6px;border:1px solid #555;border-radius:4px;background:#2a2a2a;color:#e0e0e0;font-size:13px">
-    <button id="new-project-btn" style="display:none;margin-left:4px;padding:4px 8px;font-size:12px" title="Create project">✓</button>
-    <label class="plan-mode-label" style="margin-left:8px">
-      <input type="checkbox" id="plan-mode"> ✦ Plan Mode
-    </label>
-    <span class="shortcuts-hint">Enter = newline &nbsp;|&nbsp; Cmd/Ctrl+Enter = submit</span>
-    <button class="btn-add" id="submit-btn">Add</button>
+
+  <!-- Goals in review -->
+  <div class="plan-goals-area" id="plan-goals-area">
+    <div class="plan-empty" id="plan-empty">
+      <div class="plan-empty-icon">✦</div>
+      <div class="plan-empty-title">Ready to decompose</div>
+      <div class="plan-empty-sub">Enter a goal above and click <strong>Decompose Goal</strong><br>
+        to break it into parallel sub-tasks with dependencies.</div>
+    </div>
   </div>
 </div>
 
-<!-- Kanban Board -->
-<div class="kanban">
-  <div class="column col-pending">
-    <div class="col-header"><span>Pending</span><span class="badge" id="badge-pending">0</span></div>
-    <div class="col-body" id="body-pending"></div>
-  </div>
-  <div class="column col-in_progress">
-    <div class="col-header"><span>In Dev</span><span class="badge" id="badge-in_progress">0</span></div>
-    <div class="col-body" id="body-in_progress"></div>
-  </div>
-  <div class="column col-review">
-    <div class="col-header"><span>Review</span><span class="badge" id="badge-review">0</span></div>
-    <div class="col-body" id="body-review"></div>
-  </div>
-  <div class="column col-completed">
-    <div class="col-header"><span>Completed</span><span class="badge" id="badge-completed">0</span></div>
-    <div class="col-body" id="body-completed"></div>
-  </div>
-  <div class="column col-failed">
-    <div class="col-header"><span>Failed</span><span class="badge" id="badge-failed">0</span></div>
-    <div class="col-body" id="body-failed"></div>
-  </div>
-  <div class="column col-cancelled">
-    <div class="col-header"><span>Cancelled</span><span class="badge" id="badge-cancelled">0</span></div>
-    <div class="col-body" id="body-cancelled"></div>
+<!-- ══════════════════════════════════════════════════════════════
+     STATUS TAB (read-only kanban)
+     ══════════════════════════════════════════════════════════════ -->
+<div id="tab-status" class="status-tab" style="display:none">
+  <div class="kanban">
+    <div class="column col-pending">
+      <div class="col-header"><span>Pending</span><span class="badge" id="badge-pending">0</span></div>
+      <div class="col-body" id="body-pending"></div>
+    </div>
+    <div class="column col-in_progress">
+      <div class="col-header"><span>In Dev</span><span class="badge" id="badge-in_progress">0</span></div>
+      <div class="col-body" id="body-in_progress"></div>
+    </div>
+    <div class="column col-completed">
+      <div class="col-header"><span>Done</span><span class="badge" id="badge-completed">0</span></div>
+      <div class="col-body" id="body-completed"></div>
+    </div>
+    <div class="column col-failed">
+      <div class="col-header"><span>Failed</span><span class="badge" id="badge-failed">0</span></div>
+      <div class="col-body" id="body-failed"></div>
+    </div>
+    <div class="column col-cancelled">
+      <div class="col-header"><span>Cancelled</span><span class="badge" id="badge-cancelled">0</span></div>
+      <div class="col-body" id="body-cancelled"></div>
+    </div>
   </div>
 </div>
 
-<!-- Plan Review Modal -->
+<!-- Plan Review Modal (legacy plan tasks) -->
 <div class="modal-overlay hidden" id="modal-overlay">
-  <div class="modal" id="modal">
+  <div class="modal">
     <div class="modal-header">
       <span class="status-badge badge-review" id="modal-status-badge">Review</span>
       <span class="modal-title" id="modal-title"></span>
@@ -375,11 +418,11 @@ select {
     <div class="modal-body">
       <div class="prose" id="modal-plan"></div>
       <div class="questions-section" id="modal-questions" style="display:none">
-        <div class="questions-title">⊙ Claude's Questions <span style="font-weight:400;color:var(--text2)">(please answer before confirming)</span></div>
+        <div class="questions-title">⊙ Claude's Questions <span style="font-weight:400;color:var(--text2)">(answer before confirming)</span></div>
         <div id="questions-body"></div>
       </div>
       <div class="feedback-area" id="feedback-area">
-        <textarea id="feedback-input" placeholder="Describe what you'd like changed or clarified..."></textarea>
+        <textarea id="feedback-input" placeholder="Describe what you'd like changed…"></textarea>
         <div style="margin-top:8px;display:flex;gap:8px">
           <button class="btn-secondary" id="regen-btn" style="font-size:13px;padding:6px 14px">↺ Regenerate Plan</button>
           <button class="btn-tertiary" id="cancel-feedback-btn" style="font-size:13px;padding:6px 14px;margin-left:0">Cancel</button>
@@ -394,19 +437,45 @@ select {
   </div>
 </div>
 
+<!-- Goal Planning Modal — clarifying questions before decomposition -->
+<div class="modal-overlay hidden" id="goal-plan-overlay">
+  <div class="modal" style="max-width:660px">
+    <div class="modal-header">
+      <span class="status-badge" style="background:var(--primary-bg);color:var(--primary)">✦ Plan</span>
+      <span class="modal-title" id="gp-title">Before we decompose…</span>
+      <button class="modal-close" onclick="closeGoalPlanModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px">
+        Answer these questions so the task breakdown matches your intent.
+        Skip any that don't apply — you can always refine later.
+      </div>
+      <div id="gp-questions"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="gp-confirm-btn" onclick="confirmGoalPlan()">✦ Decompose with these choices</button>
+      <button class="btn-tertiary" onclick="closeGoalPlanModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toasts -->
 <div id="toasts"></div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────────
-let tasks = [];
-let projects = [];
+// ── State ─────────────────────────────────────────────────────────────────────
+let tasks      = [];
+let projects   = [];      // [{name, last_used_at, use_count}]
+let selectedProject = ''; // currently selected project name (or '__new__')
 let expandedCards = new Set();
-let currentTaskId = null;   // task open in modal
-let currentAnswers = {};    // question answers for modal
-let pollTimer = null;
+let currentTaskId  = null;
+let currentAnswers = {};
+// Goal plan modal state
+let _gpPrompt  = '';
+let _gpProject = '';
+let _gpAnswers = {};  // question → selected option
 
-// ── Utils ──────────────────────────────────────────────────────────────────────
+// ── Utils ─────────────────────────────────────────────────────────────────────
 function relTime(iso) {
   if (!iso) return '';
   const diff = (Date.now() - new Date(iso)) / 1000;
@@ -416,137 +485,472 @@ function relTime(iso) {
   const d = new Date(iso);
   return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
-
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                  .replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
 function toast(msg, type='') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
   document.getElementById('toasts').appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), 3500);
 }
 
-// ── API ────────────────────────────────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────────────────────
 async function apiFetch(url, opts={}) {
-  const r = await fetch(url, {headers: {'Content-Type':'application/json'}, ...opts});
+  const r = await fetch(url, {headers:{'Content-Type':'application/json'}, ...opts});
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json();
 }
 
-// ── Render ─────────────────────────────────────────────────────────────────────
+// ── Tab Switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('tab-plan').style.display   = tab === 'plan'   ? '' : 'none';
+  document.getElementById('tab-status').style.display = tab === 'status' ? '' : 'none';
+  localStorage.setItem('active-tab', tab);
+}
+
+// ── Project Picker ────────────────────────────────────────────────────────────
+function renderProjectPicker() {
+  const container = document.getElementById('proj-pills');
+  const newRow    = document.getElementById('new-proj-row');
+
+  const pills = [...projects, {name: '__new__', last_used_at: null}];
+
+  container.innerHTML = pills.map(p => {
+    const isNew = p.name === '__new__';
+    const sel   = selectedProject === p.name;
+    const time  = p.last_used_at ? `<span class="pill-time">${relTime(p.last_used_at)}</span>` : '';
+    return `<div class="proj-pill ${sel ? 'selected' : ''} ${isNew ? 'new-pill' : ''}"
+                 onclick="selectProject('${esc(p.name)}')">
+      ${isNew ? '＋ New project' : esc(p.name)}${time}
+    </div>`;
+  }).join('');
+
+  newRow.classList.toggle('visible', selectedProject === '__new__');
+}
+
+function selectProject(name) {
+  selectedProject = name;
+  renderProjectPicker();
+  if (name === '__new__') {
+    setTimeout(() => {
+      const inp = document.getElementById('new-proj-name');
+      inp.focus();
+      updateNewProjBtn();
+    }, 30);
+  }
+}
+
+function updateNewProjBtn() {
+  const val = document.getElementById('new-proj-name').value.trim();
+  document.getElementById('create-proj-btn').disabled = !val;
+}
+
+async function confirmNewProject() {
+  const name = document.getElementById('new-proj-name').value.trim();
+  if (!name) return;
+  try {
+    await apiFetch('/api/projects', {method:'POST', body:JSON.stringify({name})});
+    toast(`Project "${name}" created`, 'success');
+    document.getElementById('new-proj-name').value = '';
+    await loadProjects(name);
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+// ── Plan Tab Rendering ────────────────────────────────────────────────────────
+function renderPlanTab(taskList) {
+  const goals = taskList.filter(t =>
+    t.type === 'goal' && (t.status === 'review' || t.status === 'approved'));
+
+  const area  = document.getElementById('plan-goals-area');
+  const empty = document.getElementById('plan-empty');
+
+  if (goals.length === 0) {
+    area.innerHTML = '';
+    area.appendChild(empty);
+    return;
+  }
+
+  area.innerHTML = goals.map(g => renderGoalCard(g)).join('');
+}
+
+function renderGoalCard(goal) {
+  const isApproved = goal.status === 'approved';
+  const taskList   = goal.tasks || [];
+  const taskCount  = taskList.length;
+
+  const taskItems = taskList.map((t, i) => {
+    const deps = Array.isArray(t.depends_on) ? t.depends_on : (t.depends_on ? [t.depends_on] : []);
+    const depStr = deps.length
+      ? `<span class="goal-task-dep">[after #${deps.map(d => esc(String(d).replace('task-',''))).join(', #')}]</span>`
+      : '';
+    const statusDot = t.status !== 'draft'
+      ? `<span style="font-size:10px;padding:1px 5px;border-radius:8px;margin-left:6px;
+                      background:${t.status==='completed'?'var(--green-bg)':t.status==='failed'?'var(--red-bg)':'var(--blue-bg)'};
+                      color:${t.status==='completed'?'var(--green)':t.status==='failed'?'var(--red)':'var(--blue)'}">${t.status}</span>`
+      : '';
+    const p120 = t.prompt.length > 120 ? esc(t.prompt.slice(0,120)) + '…' : esc(t.prompt);
+    return `<div class="goal-task-item">
+      <div style="display:flex;align-items:baseline;flex-wrap:wrap">
+        <span class="goal-task-num">${i+1}</span>
+        <span class="goal-task-title">${esc(t.title || t.prompt.slice(0,60))}</span>
+        ${depStr}${statusDot}
+      </div>
+      <div class="goal-task-prompt">${p120}</div>
+      ${t.acceptance_criteria
+        ? `<div class="goal-task-ac">✓ ${esc(t.acceptance_criteria.slice(0,100))}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const feedbackSection = isApproved
+    ? `<div style="margin-top:8px;font-size:12px;color:var(--green)">✓ Approved — tasks queued for workers</div>`
+    : `<div class="goal-feedback">
+        <textarea id="goal-feedback-${goal.id}" placeholder="Feedback to refine tasks…" rows="2"></textarea>
+        <div class="goal-feedback-btns">
+          <button class="btn-refine" onclick="refineGoal('${goal.id}')">✎ Refine</button>
+          <button class="btn-approve" onclick="approveGoal('${goal.id}')">✓ Approve &amp; Start</button>
+        </div>
+       </div>`;
+
+  return `<div class="card goal-card" id="card-${goal.id}">
+    <div class="goal-header">
+      <span class="goal-badge">GOAL</span>
+      ${goal.project_path
+        ? `<span style="font-size:12px;color:var(--text2);font-weight:500">${esc(goal.project_path)}</span>`
+        : ''}
+      <span style="font-size:12px;color:var(--text3)">${taskCount} task${taskCount!==1?'s':''}</span>
+      <div style="margin-left:auto">
+        <button class="action-btn danger" onclick="cancelTask('${goal.id}')" title="Cancel goal">×</button>
+      </div>
+    </div>
+    <p style="font-size:13px;font-weight:500;margin-bottom:8px">${esc(goal.prompt)}</p>
+    <div class="goal-tasks">${taskItems ||
+      '<div style="color:var(--text3);font-size:12px;padding:4px">No tasks generated</div>'}</div>
+    <div class="card-footer" style="margin-top:8px">
+      <span class="card-time">${relTime(goal.created_at)}</span>
+    </div>
+    ${feedbackSection}
+  </div>`;
+}
+
+async function refineGoal(goalId) {
+  const feedbackEl = document.getElementById(`goal-feedback-${goalId}`);
+  const feedback   = feedbackEl ? feedbackEl.value.trim() : '';
+  if (!feedback) { toast('Please enter feedback before refining', 'error'); return; }
+  if (feedbackEl) feedbackEl.disabled = true;
+  const btn = document.querySelector(`#card-${goalId} .btn-refine`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+  try {
+    await apiFetch(`/api/refine/${goalId}`, {method:'POST', body:JSON.stringify({feedback})});
+    toast('Tasks refined', 'success');
+    await loadTasks();
+  } catch(e) {
+    toast('Refine failed: ' + e.message, 'error');
+    if (feedbackEl) feedbackEl.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = '✎ Refine'; }
+  }
+}
+
+async function approveGoal(goalId) {
+  const btn = document.querySelector(`#card-${goalId} .btn-approve`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
+  try {
+    const result = await apiFetch(`/api/approve/${goalId}`, {method:'POST'});
+    toast(`${result.task_count} task${result.task_count!==1?'s':''} queued`, 'success');
+    await loadTasks();
+  } catch(e) {
+    toast('Approve failed: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Approve & Start'; }
+  }
+}
+
+// ── Status Tab Rendering ──────────────────────────────────────────────────────
 const STATUS_LABEL = {
-  pending:'Pending', in_progress:'In Dev', review:'Review',
+  pending:'Pending', in_progress:'In Dev',
   completed:'Done', failed:'Failed', cancelled:'Cancelled'
 };
-const COLUMNS = ['pending','in_progress','review','completed','failed','cancelled'];
+const COLUMNS = ['pending','in_progress','completed','failed','cancelled'];
 
 function renderKanban(taskList) {
   const groups = {};
   COLUMNS.forEach(s => groups[s] = []);
-  taskList.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
 
+  taskList.forEach(t => {
+    if (t.type === 'goal') return;    // goals go to plan tab only
+    if (t.status === 'draft') return; // draft tasks embedded in goal cards
+    if (groups[t.status]) groups[t.status].push(t);
+  });
+
+  const visible = taskList.filter(t => t.type !== 'goal' && t.status !== 'draft').length;
   document.getElementById('task-count').textContent =
-    `${taskList.length} task${taskList.length !== 1 ? 's' : ''}`;
+    `${visible} task${visible !== 1 ? 's' : ''}`;
+
+  // Populate prerequisite dropdown
+  const sel = document.getElementById('depends-on');
+  const cur = sel.value;
+  const completed = taskList.filter(t => t.status === 'completed' && t.type !== 'goal');
+  sel.innerHTML = '<option value="">None</option>' +
+    completed.map(t => `<option value="${esc(t.id)}" ${cur===t.id?'selected':''}>${esc(t.id)} — ${esc((t.title||t.prompt).slice(0,40))}</option>`).join('');
 
   COLUMNS.forEach(status => {
     const list = groups[status];
     document.getElementById(`badge-${status}`).textContent = list.length;
     const body = document.getElementById(`body-${status}`);
-    if (list.length === 0) {
-      body.innerHTML = '<div class="empty-col">No tasks</div>';
-    } else {
-      body.innerHTML = list.map(renderCard).join('');
-    }
+    body.innerHTML = list.length === 0
+      ? '<div class="empty-col">Empty</div>'
+      : list.map(renderCard).join('');
   });
-
-  // Populate prerequisite dropdown
-  const sel = document.getElementById('depends-on');
-  const cur = sel.value;
-  const completed = taskList.filter(t => t.status === 'completed');
-  sel.innerHTML = '<option value="">None (start immediately)</option>' +
-    completed.map(t => `<option value="${esc(t.id)}" ${cur===t.id?'selected':''}>${esc(t.id)} — ${esc(t.prompt.slice(0,40))}</option>`).join('');
 }
 
 function renderCard(t) {
   const isExpanded = expandedCards.has(t.id);
-  const shortId = t.id.replace('task-','');
-  const isPlan = !!t.plan;
+  const shortId    = t.id.replace('task-','');
+  const isPlan     = !!t.plan;
+  const title      = t.title || t.prompt;
 
   const actions = [];
-  if (t.status === 'review') {
-    actions.push(`<button class="action-btn" onclick="openModal('${t.id}')" title="Review plan">⊞</button>`);
-  }
   if (t.status === 'failed') {
     actions.push(`<button class="action-btn" onclick="retryTask('${t.id}')" title="Retry">↺</button>`);
     actions.push(`<button class="action-btn danger" onclick="cancelTask('${t.id}')" title="Delete">🗑</button>`);
   }
-  if (['pending','review'].includes(t.status)) {
+  if (t.status === 'pending') {
     actions.push(`<button class="action-btn danger" onclick="cancelTask('${t.id}')" title="Cancel">×</button>`);
   }
-  actions.push(`<button class="action-btn" onclick="toggleCard('${t.id}')" title="${isExpanded?'Collapse':'Expand'}">${isExpanded?'∧':'∨'}</button>`);
+  actions.push(`<button class="action-btn" onclick="toggleCard('${t.id}')">${isExpanded?'∧':'∨'}</button>`);
+
+  const deps = t.depends_on;
+  const depStr = deps && (Array.isArray(deps) ? deps.length : deps)
+    ? `<span style="font-size:11px;color:var(--text3)">after #${
+        (Array.isArray(deps) ? deps : [deps]).map(d => esc(String(d).replace('task-',''))).join(', #')
+      }</span>`
+    : '';
 
   const expandedHtml = isExpanded ? `
     <div class="card-expanded">
       <div class="prose">${isPlan ? marked.parse(t.plan) : esc(t.prompt)}</div>
       ${t.result ? `<div style="margin-top:8px;font-size:11px;color:var(--text3)">
-        ${t.result.success ? '✓ Success' : '✗ Failed'} · ${t.result.subgoals ? t.result.subgoals.length + ' sub-goals' : ''}
+        ${t.result.success?'✓ Success':'✗ Failed'}
+        ${t.tool_calls_count ? ` · ${t.tool_calls_count} tool calls` : ''}
+        ${t.cost_usd ? ` · $${t.cost_usd.toFixed(4)}` : ''}
+        ${t.duration_s ? ` · ${t.duration_s.toFixed(1)}s` : ''}
       </div>` : ''}
     </div>` : '';
 
   return `<div class="card card-${t.status}" id="card-${t.id}">
     <div class="card-top">
       <span class="task-id">#${esc(shortId)}</span>
-      ${isPlan ? '<span class="plan-tag">Plan</span>' : ''}
+      ${isPlan ? '<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--purple-bg);color:var(--purple);font-weight:600">Plan</span>' : ''}
+      ${t.goal_id ? '<span style="font-size:10px;padding:2px 6px;border-radius:10px;background:var(--purple-bg);color:var(--purple);font-weight:600">Sub</span>' : ''}
       <span class="status-badge badge-${t.status}">${STATUS_LABEL[t.status]||t.status}</span>
       <div class="card-actions">${actions.join('')}</div>
     </div>
-    <p class="card-prompt${isExpanded?' expanded':''}">${esc(t.prompt)}</p>
+    <p class="card-prompt${isExpanded?' expanded':''}" title="${esc(t.prompt)}">${esc(title.slice(0,200))}</p>
     ${expandedHtml}
     <div class="card-footer">
       <span class="card-time">${relTime(t.created_at)}</span>
-      ${t.depends_on ? `<span style="font-size:11px;color:var(--text3)">after #${esc(t.depends_on.replace('task-',''))}</span>` : ''}
+      ${depStr}
+      ${t.worker_id ? `<span style="font-size:10px;color:var(--text3)">${esc(t.worker_id)}</span>` : ''}
     </div>
   </div>`;
 }
 
-// ── Card expand/collapse ───────────────────────────────────────────────────────
 function toggleCard(id) {
   if (expandedCards.has(id)) expandedCards.delete(id);
   else expandedCards.add(id);
   renderKanban(tasks);
 }
 
-// ── Modal ──────────────────────────────────────────────────────────────────────
+// ── Compose Actions ───────────────────────────────────────────────────────────
+function getSelectedProjectName() {
+  if (selectedProject === '__new__') {
+    return document.getElementById('new-proj-name').value.trim();
+  }
+  return selectedProject;
+}
+
+async function ensureProjectExists() {
+  if (selectedProject !== '__new__') return selectedProject;
+  const name = document.getElementById('new-proj-name').value.trim();
+  if (!name) { toast('Please enter a project name', 'error'); return null; }
+  try {
+    await apiFetch('/api/projects', {method:'POST', body:JSON.stringify({name})});
+    toast(`Project "${name}" created`, 'success');
+    await loadProjects(name);
+    return name;
+  } catch(e) { toast('Failed to create project: ' + e.message, 'error'); return null; }
+}
+
+async function decomposeGoal() {
+  const prompt = document.getElementById('task-input').value.trim();
+  if (!prompt) { toast('Please enter a goal', 'error'); return; }
+
+  const project = await ensureProjectExists();
+  if (project === null) return;
+  if (!project) { toast('Please select or create a project', 'error'); return; }
+
+  _gpPrompt  = prompt;
+  _gpProject = project;
+  _gpAnswers = {};
+
+  const btn = document.getElementById('decompose-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Planning…';
+
+  try {
+    const data = await apiFetch('/api/plan-goal', {
+      method: 'POST',
+      body: JSON.stringify({prompt, project_path: project})
+    });
+    if (data.questions && data.questions.length > 0) {
+      renderGoalPlanModal(data.questions);
+      document.getElementById('goal-plan-overlay').classList.remove('hidden');
+    } else {
+      // No questions — go straight to decompose
+      await _runDecompose(prompt, project, {});
+    }
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✦ Decompose Goal';
+  }
+}
+
+function renderGoalPlanModal(questions) {
+  document.getElementById('gp-title').textContent =
+    `Plan: ${_gpPrompt.slice(0, 60)}${_gpPrompt.length > 60 ? '…' : ''}`;
+  const container = document.getElementById('gp-questions');
+  container.innerHTML = questions.map((q, qi) => `
+    <div class="question-block">
+      <div class="question-text">${esc(q.question)}</div>
+      <div class="options">
+        ${(q.options || []).map((opt, oi) => `
+          <button class="option-btn" data-qi="${qi}" data-opt="${esc(opt)}"
+                  onclick="selectGoalPlanOption(${qi}, this, ${JSON.stringify(esc(q.question))}, ${JSON.stringify(esc(opt))})">
+            ${esc(opt)}
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectGoalPlanOption(qi, el, question, option) {
+  // Deselect siblings
+  el.closest('.options').querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  // Unescape for storage
+  _gpAnswers[question.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"')] =
+    option.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+}
+
+function closeGoalPlanModal() {
+  document.getElementById('goal-plan-overlay').classList.add('hidden');
+}
+
+async function confirmGoalPlan() {
+  closeGoalPlanModal();
+  await _runDecompose(_gpPrompt, _gpProject, _gpAnswers);
+}
+
+async function _runDecompose(prompt, project, answers) {
+  const btn = document.getElementById('decompose-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Decomposing…';
+  try {
+    await apiFetch('/api/decompose', {
+      method: 'POST',
+      body: JSON.stringify({prompt, project_path: project, answers})
+    });
+    document.getElementById('task-input').value = '';
+    await loadTasks();
+    toast('Goal decomposed — review below', 'success');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✦ Decompose Goal';
+  }
+}
+
+async function submitTask() {
+  const prompt = document.getElementById('task-input').value.trim();
+  if (!prompt) { toast('Please enter a task', 'error'); return; }
+
+  let project = selectedProject === '__new__' ? null : selectedProject;
+  if (selectedProject === '__new__') {
+    project = await ensureProjectExists();
+    if (project === null) return;
+  }
+
+  const dependsOn = document.getElementById('depends-on').value || null;
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    await apiFetch('/api/submit', {
+      method: 'POST',
+      body: JSON.stringify({prompt, project_path: project || '', depends_on: dependsOn})
+    });
+    document.getElementById('task-input').value = '';
+    await loadTasks();
+    toast('Task queued', 'success');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Quick Task';
+  }
+}
+
+function toggleDepSelect() {
+  const wrap = document.getElementById('dep-select-wrap');
+  wrap.style.display = wrap.style.display === 'none' ? 'flex' : 'none';
+}
+
+// ── Task Actions ──────────────────────────────────────────────────────────────
+async function retryTask(id) {
+  try {
+    await apiFetch(`/api/retry/${id}`, {method:'POST'});
+    toast('Task requeued', 'success');
+    await loadTasks();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+async function cancelTask(id) {
+  try {
+    await apiFetch(`/api/tasks/${id}`, {method:'DELETE'});
+    toast('Cancelled');
+    await loadTasks();
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+// ── Legacy Plan Modal ─────────────────────────────────────────────────────────
 function openModal(taskId) {
   const t = tasks.find(x => x.id === taskId);
   if (!t) return;
-  currentTaskId = taskId;
-  currentAnswers = { ...(t.answers || {}) };
-
+  currentTaskId  = taskId;
+  currentAnswers = {...(t.answers || {})};
   document.getElementById('modal-title').textContent = t.prompt;
-  document.getElementById('modal-plan').innerHTML = t.plan ? marked.parse(t.plan) : '<em>No plan available</em>';
+  document.getElementById('modal-plan').innerHTML = t.plan ? marked.parse(t.plan) : '<em>No plan</em>';
   document.getElementById('modal-status-badge').textContent = STATUS_LABEL[t.status] || t.status;
   document.getElementById('modal-status-badge').className = `status-badge badge-${t.status}`;
-
   renderQuestions(t.questions || []);
   hideFeedback();
-
   document.getElementById('modal-overlay').classList.remove('hidden');
 }
-
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
-  currentTaskId = null;
+  currentTaskId  = null;
   currentAnswers = {};
 }
-
 function renderQuestions(questions) {
   const section = document.getElementById('modal-questions');
-  const body = document.getElementById('questions-body');
+  const body    = document.getElementById('questions-body');
   if (!questions.length) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   body.innerHTML = questions.map((q, qi) => `
@@ -555,266 +959,141 @@ function renderQuestions(questions) {
       <div class="options">
         ${q.options.map((opt, oi) => `
           <button class="option-btn ${currentAnswers[qi]===oi?'selected':''}"
-                  onclick="selectOption(${qi},${oi},this)">
-            ${esc(opt)}
-          </button>`).join('')}
+                  onclick="selectOption(${qi},${oi},this)">${esc(opt)}</button>`).join('')}
       </div>
     </div>`).join('');
 }
-
 function selectOption(qi, oi, btn) {
   currentAnswers[qi] = oi;
-  const block = btn.closest('.question-block');
-  block.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+  btn.closest('.question-block').querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 }
-
 function showFeedback() {
   document.getElementById('feedback-area').classList.add('visible');
   document.getElementById('feedback-input').focus();
 }
-
 function hideFeedback() {
   document.getElementById('feedback-area').classList.remove('visible');
   document.getElementById('feedback-input').value = '';
 }
-
 async function regenPlan() {
   if (!currentTaskId) return;
   const feedback = document.getElementById('feedback-input').value.trim();
   const btn = document.getElementById('regen-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Regenerating...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Regenerating…';
   try {
-    const updated = await apiFetch(`/api/replan/${currentTaskId}`, {
-      method: 'POST',
-      body: JSON.stringify({ feedback, prompt: '' })
-    });
-    // Refresh tasks and reopen modal
+    await apiFetch(`/api/replan/${currentTaskId}`, {method:'POST', body:JSON.stringify({feedback,prompt:''})});
     await loadTasks();
     openModal(currentTaskId);
     hideFeedback();
     toast('Plan regenerated', 'success');
-  } catch(e) {
-    toast('Regeneration failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '↺ Regenerate Plan';
-  }
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '↺ Regenerate Plan'; }
 }
-
 async function confirmTask() {
   if (!currentTaskId) return;
   const btn = document.getElementById('confirm-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Submitting...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Submitting…';
   try {
-    await apiFetch(`/api/confirm/${currentTaskId}`, {
-      method: 'POST',
-      body: JSON.stringify({ answers: currentAnswers })
-    });
-    toast('Task submitted to queue', 'success');
+    await apiFetch(`/api/confirm/${currentTaskId}`, {method:'POST', body:JSON.stringify({answers:currentAnswers})});
+    toast('Task submitted', 'success');
     closeModal();
     await loadTasks();
-  } catch(e) {
-    toast('Failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '✓ Confirm & Create Task';
-  }
-}
-
-// ── Submit ─────────────────────────────────────────────────────────────────────
-async function submitTask() {
-  const prompt = document.getElementById('task-input').value.trim();
-  if (!prompt) { toast('Please enter a task', 'error'); return; }
-
-  const planMode  = document.getElementById('plan-mode').checked;
-  const project   = document.getElementById('project-select').value;
-  const dependsOn = document.getElementById('depends-on').value || null;
-  const btn = document.getElementById('submit-btn');
-
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-
-  try {
-    if (planMode) {
-      toast('Generating plan...');
-      const t = await apiFetch('/api/plan', {
-        method: 'POST',
-        body: JSON.stringify({ prompt, project_path: project, depends_on: dependsOn })
-      });
-      document.getElementById('task-input').value = '';
-      await loadTasks();
-      openModal(t.id);
-      toast('Plan ready — please review', 'success');
-    } else {
-      await apiFetch('/api/submit', {
-        method: 'POST',
-        body: JSON.stringify({ prompt, project_path: project, depends_on: dependsOn })
-      });
-      document.getElementById('task-input').value = '';
-      await loadTasks();
-      toast('Task queued', 'success');
-    }
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Add';
-  }
-}
-
-// ── Task Actions ───────────────────────────────────────────────────────────────
-async function retryTask(id) {
-  try {
-    await apiFetch(`/api/retry/${id}`, { method: 'POST' });
-    toast('Task requeued', 'success');
-    await loadTasks();
   } catch(e) { toast('Failed: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '✓ Confirm & Create Task'; }
 }
 
-async function cancelTask(id) {
-  try {
-    await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
-    toast('Task cancelled');
-    await loadTasks();
-  } catch(e) { toast('Failed: ' + e.message, 'error'); }
-}
-
-// ── Data Loading ───────────────────────────────────────────────────────────────
+// ── Data Loading ──────────────────────────────────────────────────────────────
 async function loadTasks() {
   try {
     tasks = await apiFetch('/api/tasks');
+    renderPlanTab(tasks);
     renderKanban(tasks);
   } catch(e) { console.warn('Failed to load tasks:', e); }
 }
 
 async function loadProjects(selectName) {
   try {
-    projects = await apiFetch('/api/projects');
-    const sel = document.getElementById('project-select');
-    const current = selectName || sel.value;
-    sel.innerHTML =
-      '<option value="">None</option>' +
-      projects.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('') +
-      '<option value="__new__">＋ New project…</option>';
-    if (current && current !== '__new__') sel.value = current;
+    const raw = await apiFetch('/api/projects');
+    // Support both old string[] and new {name,...}[] format
+    projects = raw.map(p => typeof p === 'string' ? {name:p, last_used_at:null, use_count:0} : p);
+
+    // Auto-select: honour explicit selection, else most-recently-used, else first
+    if (selectName) {
+      selectedProject = selectName;
+    } else if (!selectedProject || !projects.find(p => p.name === selectedProject)) {
+      selectedProject = projects.length > 0 ? projects[0].name : '__new__';
+    }
+    renderProjectPicker();
   } catch(e) { console.warn('Failed to load projects:', e); }
 }
 
-// ── New-project inline creation ───────────────────────────────────────────────
-document.getElementById('project-select').addEventListener('change', function() {
-  const inp  = document.getElementById('new-project-input');
-  const btn  = document.getElementById('new-project-btn');
-  if (this.value === '__new__') {
-    inp.style.display = 'inline-block';
-    btn.style.display = 'inline-block';
-    inp.value = '';
-    inp.focus();
-  } else {
-    inp.style.display = 'none';
-    btn.style.display = 'none';
-  }
-});
-
-async function doCreateProject() {
-  const inp  = document.getElementById('new-project-input');
-  const name = inp.value.trim();
-  if (!name) return;
-  try {
-    await apiFetch('/api/projects', { method: 'POST', body: JSON.stringify({ name }) });
-    toast(`Project "${name}" created`, 'success');
-    inp.style.display = 'none';
-    document.getElementById('new-project-btn').style.display = 'none';
-    await loadProjects(name);   // refresh and pre-select the new project
-  } catch(e) {
-    toast('Failed: ' + e.message, 'error');
-  }
-}
-
-document.getElementById('new-project-btn').addEventListener('click', doCreateProject);
-document.getElementById('new-project-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
-  if (e.key === 'Escape') {
-    document.getElementById('new-project-input').style.display = 'none';
-    document.getElementById('new-project-btn').style.display = 'none';
-    document.getElementById('project-select').value = '';
-  }
-});
-
-// ── Voice Input ────────────────────────────────────────────────────────────────
+// ── Voice Input ───────────────────────────────────────────────────────────────
 let recognition = null;
 function initMic() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) { document.getElementById('mic-btn').style.display='none'; return; }
-  recognition = new SpeechRecognition();
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { document.getElementById('mic-btn').style.display = 'none'; return; }
+  recognition = new SR();
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.onresult = e => {
     const txt = e.results[0][0].transcript;
-    const ta = document.getElementById('task-input');
-    ta.value = (ta.value ? ta.value + ' ' : '') + txt;
+    const ta  = document.getElementById('task-input');
+    ta.value  = (ta.value ? ta.value + ' ' : '') + txt;
     document.getElementById('mic-btn').classList.remove('recording');
   };
   recognition.onend = () => document.getElementById('mic-btn').classList.remove('recording');
 }
-
 function toggleMic() {
   if (!recognition) return;
   const btn = document.getElementById('mic-btn');
-  if (btn.classList.contains('recording')) {
-    recognition.stop();
-    btn.classList.remove('recording');
-  } else {
-    recognition.start();
-    btn.classList.add('recording');
-  }
+  if (btn.classList.contains('recording')) { recognition.stop(); btn.classList.remove('recording'); }
+  else { recognition.start(); btn.classList.add('recording'); }
 }
 
-// ── Dark Mode ──────────────────────────────────────────────────────────────────
+// ── Dark Mode ─────────────────────────────────────────────────────────────────
 function initTheme() {
   const saved = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-theme', saved);
   document.getElementById('theme-btn').textContent = saved === 'dark' ? '☀️' : '🌙';
 }
-
 function toggleTheme() {
-  const cur = document.documentElement.getAttribute('data-theme');
+  const cur  = document.documentElement.getAttribute('data-theme');
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   document.getElementById('theme-btn').textContent = next === 'dark' ? '☀️' : '🌙';
 }
 
-// ── Event Listeners ────────────────────────────────────────────────────────────
+// ── Event Listeners ───────────────────────────────────────────────────────────
+document.getElementById('decompose-btn').addEventListener('click', decomposeGoal);
 document.getElementById('submit-btn').addEventListener('click', submitTask);
-document.getElementById('theme-btn').addEventListener('click', toggleTheme);
 document.getElementById('mic-btn').addEventListener('click', toggleMic);
+document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('close-modal-btn').addEventListener('click', closeModal);
 document.getElementById('confirm-btn').addEventListener('click', confirmTask);
 document.getElementById('feedback-btn').addEventListener('click', showFeedback);
 document.getElementById('cancel-feedback-btn').addEventListener('click', hideFeedback);
 document.getElementById('regen-btn').addEventListener('click', regenPlan);
-
 document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
 });
 
 document.getElementById('task-input').addEventListener('keydown', e => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-    e.preventDefault();
-    submitTask();
-  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); decomposeGoal(); }
 });
 
-// ── Init ───────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────────
 initTheme();
 initMic();
-loadProjects();
-loadTasks();
-pollTimer = setInterval(loadTasks, 3000);
+loadProjects().then(() => loadTasks());
+setInterval(loadTasks, 3000);
+
+// Restore active tab
+const savedTab = localStorage.getItem('active-tab') || 'plan';
+switchTab(savedTab);
 </script>
 </body>
 </html>

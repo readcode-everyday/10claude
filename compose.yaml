@@ -20,7 +20,6 @@ services:
     container_name: status-ui
     build: .
     working_dir: /app
-
     env_file: .env
     environment:
       - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME}
@@ -30,32 +29,121 @@ services:
       # Host user IDs so project_manager can chown created repos to the real user
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
-      # openclaw gateway runs on host loopback — reachable via localhost with network_mode: host
-      - OPENCLAW_GATEWAY_URL=http://localhost:18789
-      # Token is auto-read from ~/.openclaw/openclaw.json (mounted below)
-      # Override with OPENCLAW_GATEWAY_TOKEN env var if preferred
-
+      # GitHub integration
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_USER=${GIT_AUTHOR_NAME}
     volumes:
       - ~/10claude:/app
       - ~/.ssh:/root/.ssh:ro
       - ~/.claude:/root/.claude
-      - ~/.openclaw:/root/.openclaw:ro   # read openclaw.json for gateway token
-
+      - ~/.openclaw:/root/.openclaw:ro
     command: >
       bash -c "
         pip install -q -e /app &&
         uvicorn openclaw.tools.status_ui:app --host 0.0.0.0 --port 18888
       "
-
     network_mode: host
-
     deploy:
       resources:
         limits:
           cpus: "1"
           memory: 512M
-
     restart: unless-stopped
+
+
+  # ── Parallel Claude workers ────────────────────────────────────────────────
+  # Each worker polls workspace/queue/task_store.json every 5s,
+  # atomically claims a pending task, runs it via the claude CLI,
+  # then loops. Three run in parallel; each gets 6 CPUs and 6 GB RAM.
+
+  worker-1:
+    container_name: worker-1
+    image: openclaw-sandbox:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - WORKER_ID=worker-1
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_USER=${GIT_AUTHOR_NAME}
+    volumes:
+      - ~/10claude/workspace:/app/workspace
+      - ~/10claude/scripts:/app/scripts:ro
+      - ~/.claude:/home/worker/.claude
+      - ~/.claude.json:/home/worker/.claude.json
+      - ~/.ssh:/home/worker/.ssh:ro
+    command: >
+      bash -c "
+        git config --global user.name  \"$${GIT_AUTHOR_NAME}\" &&
+        git config --global user.email \"$${GIT_AUTHOR_EMAIL}\" &&
+        python3 /app/scripts/worker.py
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 6G
+
+  worker-2:
+    container_name: worker-2
+    image: openclaw-sandbox:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - WORKER_ID=worker-2
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
+    volumes:
+      - ~/10claude/workspace:/app/workspace
+      - ~/10claude/scripts:/app/scripts:ro
+      - ~/.claude:/home/worker/.claude
+      - ~/.claude.json:/home/worker/.claude.json
+      - ~/.ssh:/home/worker/.ssh:ro
+    command: >
+      bash -c "
+        git config --global user.name  \"$${GIT_AUTHOR_NAME}\" &&
+        git config --global user.email \"$${GIT_AUTHOR_EMAIL}\" &&
+        python3 /app/scripts/worker.py
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 6G
+
+  worker-3:
+    container_name: worker-3
+    image: openclaw-sandbox:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - WORKER_ID=worker-3
+      - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME}
+      - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL}
+      - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME}
+      - GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL}
+    volumes:
+      - ~/10claude/workspace:/app/workspace
+      - ~/10claude/scripts:/app/scripts:ro
+      - ~/.claude:/home/worker/.claude
+      - ~/.claude.json:/home/worker/.claude.json
+      - ~/.ssh:/home/worker/.ssh:ro
+    command: >
+      bash -c "
+        git config --global user.name  \"$${GIT_AUTHOR_NAME}\" &&
+        git config --global user.email \"$${GIT_AUTHOR_EMAIL}\" &&
+        python3 /app/scripts/worker.py
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+          memory: 6G
 
 
 volumes:

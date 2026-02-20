@@ -361,17 +361,26 @@ CRITICAL — every task "prompt" MUST end with these exact git steps:
   git -C $P pull --rebase origin main   # sync first, resolve any conflicts
   git -C $P add -A                      # re-stage after rebase
   git -C $P commit -m "feat: <task title>" || true   # ok if nothing to commit
-  # Push with retry — if rejected, pull --rebase and retry once
-  git -C $P push origin main || (git -C $P pull --rebase origin main && git -C $P push origin main)
+  # Push with up to 3 retries
+  _push_ok=false
+  for _try in 1 2 3; do
+    git -C $P push origin main && _push_ok=true && break
+    echo "Push attempt $_try failed — pulling and retrying..."
+    git -C $P pull --rebase origin main || true
+  done
+  if [ "$_push_ok" = false ]; then
+    echo "ERROR: git push failed after 3 attempts. Commits are local only."
+    echo "Run manually: git -C $P push origin main"
+    exit 1   # fail the task so it shows as failed in the UI
+  fi
 
 Conflict resolution during rebase:
   git -C $P status                   # see conflicted files
   # edit files to resolve conflicts
   git -C $P add <resolved-files>
-  git -C $P rebase --continue
-  git -C $P push origin main
+  git -C $P rebase --continue        # then the push loop above will retry
 
-Never leave changes uncommitted and unpushed — the next dependent task reads the repo state.\
+After all git steps, report in your final reply whether the push succeeded or failed.\
 """
 
 

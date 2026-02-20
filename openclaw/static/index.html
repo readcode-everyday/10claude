@@ -216,6 +216,10 @@ select { border: 1px solid var(--border); border-radius: var(--radius-sm);
                cursor: pointer; transition: opacity .15s; }
 .btn-approve:hover { opacity: .88; }
 .btn-approve:disabled { opacity: .5; cursor: not-allowed; }
+.btn-cancel-goal { padding: 7px 14px; background: none; color: var(--text3);
+                   border: 1px solid var(--border); border-radius: var(--radius-sm);
+                   font-size: 13px; cursor: pointer; transition: all .15s; }
+.btn-cancel-goal:hover { color: var(--red); border-color: var(--red); background: var(--red-bg); }
 
 /* ── Modal ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5);
@@ -612,6 +616,7 @@ function renderGoalCard(goal) {
         <div class="goal-feedback-btns">
           <button class="btn-refine" onclick="refineGoal('${goal.id}')">✎ Refine</button>
           <button class="btn-approve" onclick="approveGoal('${goal.id}')">✓ Approve &amp; Start</button>
+          <button class="btn-cancel-goal" onclick="cancelTask('${goal.id}')" style="margin-left:auto">✕ Cancel</button>
         </div>
        </div>`;
 
@@ -622,9 +627,6 @@ function renderGoalCard(goal) {
         ? `<span style="font-size:12px;color:var(--text2);font-weight:500">${esc(goal.project_path)}</span>`
         : ''}
       <span style="font-size:12px;color:var(--text3)">${taskCount} task${taskCount!==1?'s':''}</span>
-      <div style="margin-left:auto">
-        <button class="action-btn danger" onclick="cancelTask('${goal.id}')" title="Cancel goal">×</button>
-      </div>
     </div>
     <p style="font-size:13px;font-weight:500;margin-bottom:8px">${esc(goal.prompt)}</p>
     <div class="goal-tasks">${taskItems ||

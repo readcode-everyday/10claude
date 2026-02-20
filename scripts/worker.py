@@ -147,18 +147,24 @@ def build_prompt(task: dict) -> str:
 
     # Goal sub-tasks: always commit+push at the end and handle parallel merges
     if task.get("goal_id") and project and project_abs.is_dir():
+        p = project_abs
         title = task.get('title', task['prompt'][:60]).replace("'", "")
         parts.append(
             f"\n## Required: commit and push your work when done\n"
-            f"After all file changes:\n"
-            f"  git -C {project_abs} add -A\n"
-            f"  git -C {project_abs} pull --rebase origin main\n"
-            f"  git -C {project_abs} add -A\n"
-            f"  git -C {project_abs} commit -m 'feat: {title}' || true\n"
-            f"  git -C {project_abs} push origin main || \\\n"
-            f"    (git -C {project_abs} pull --rebase origin main && git -C {project_abs} push origin main)\n"
-            f"If you hit rebase conflicts: resolve files, git add, git rebase --continue, then push.\n"
-            f"Do NOT leave changes uncommitted or unpushed."
+            f"After all file changes, run these steps exactly:\n"
+            f"  git -C {p} add -A\n"
+            f"  git -C {p} pull --rebase origin main\n"
+            f"  git -C {p} add -A\n"
+            f"  git -C {p} commit -m 'feat: {title}' || true\n"
+            f"  # Push with up to 3 retries:\n"
+            f"  _ok=false\n"
+            f"  for _i in 1 2 3; do\n"
+            f"    git -C {p} push origin main && _ok=true && break\n"
+            f"    git -C {p} pull --rebase origin main || true\n"
+            f"  done\n"
+            f"  [ \"$_ok\" = true ] || {{ echo 'PUSH FAILED after 3 attempts'; exit 1; }}\n"
+            f"If you hit rebase conflicts: resolve files, git add, git rebase --continue.\n"
+            f"Report in your final reply whether push succeeded or failed."
         )
 
     if task.get("plan"):

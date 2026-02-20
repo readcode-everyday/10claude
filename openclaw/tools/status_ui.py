@@ -414,17 +414,26 @@ def _generate_goal_questions(prompt: str, project_path: str) -> list:
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         result = subprocess.run(
             ["claude", "-p", full_prompt, "--output-format", "json"],
-            capture_output=True, text=True, timeout=60, env=env,
+            capture_output=True, text=True, timeout=90, env=env,
         )
         if result.returncode != 0:
             log.warning(f"Goal questions CLI error: {result.stderr[:200]}")
             return []
         outer = json.loads(result.stdout)
         raw = outer.get("result", "")
+        # Try direct parse, then strip code fences, then regex
+        for candidate in [raw, re.sub(r'```(?:json)?\s*|\s*```', '', raw)]:
+            try:
+                data = json.loads(candidate.strip())
+                if "questions" in data:
+                    return data["questions"]
+            except json.JSONDecodeError:
+                pass
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if match:
-            data = json.loads(match.group())
-            return data.get("questions", [])
+            return json.loads(match.group()).get("questions", [])
+    except subprocess.TimeoutExpired:
+        log.warning("Goal questions timed out — skipping to decompose")
     except Exception as e:
         log.warning(f"Goal questions generation failed: {e}")
     return []
@@ -455,18 +464,41 @@ def _decompose_goal(prompt: str, project_path: str, feedback_history: list, answ
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
         result = subprocess.run(
             ["claude", "-p", full_prompt, "--output-format", "json"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=240,   # 4 min — decompose is slow
             env=env,
         )
         if result.returncode != 0:
-            log.warning(f"Goal decomposition CLI error: {result.stderr[:300]}")
+            log.warning(f"Goal decomposition CLI error (rc={result.returncode}): {result.stderr[:400]}")
             return []
         outer = json.loads(result.stdout)
         raw = outer.get("result", "")
+        if not raw:
+            log.warning("Goal decomposition: empty result from CLI")
+            return []
+        # Try direct parse first (in case Claude returned clean JSON)
+        try:
+            data = json.loads(raw)
+            if "tasks" in data:
+                return data["tasks"]
+        except json.JSONDecodeError:
+            pass
+        # Strip markdown code fences if present
+        raw_stripped = re.sub(r'^```(?:json)?\s*', '', raw.strip(), flags=re.MULTILINE)
+        raw_stripped = re.sub(r'\s*```$', '', raw_stripped.strip(), flags=re.MULTILINE)
+        try:
+            data = json.loads(raw_stripped)
+            if "tasks" in data:
+                return data["tasks"]
+        except json.JSONDecodeError:
+            pass
+        # Last resort: find first JSON object
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if match:
             data = json.loads(match.group())
             return data.get("tasks", [])
+        log.warning(f"Goal decomposition: could not parse JSON from result: {raw[:300]}")
+    except subprocess.TimeoutExpired:
+        log.warning("Goal decomposition timed out after 240s")
     except Exception as e:
         log.warning(f"Goal decomposition failed: {e}")
     return []

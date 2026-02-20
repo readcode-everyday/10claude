@@ -821,32 +821,42 @@ async function decomposeGoal() {
   }
 }
 
+// Store questions array so event handlers can reference by index
+let _gpQuestions = [];
+
 function renderGoalPlanModal(questions) {
+  _gpQuestions = questions;
+  _gpAnswers   = {};
   document.getElementById('gp-title').textContent =
     `Plan: ${_gpPrompt.slice(0, 60)}${_gpPrompt.length > 60 ? '…' : ''}`;
   const container = document.getElementById('gp-questions');
+  // Use data-qi / data-oi indices only — no string escaping in onclick
   container.innerHTML = questions.map((q, qi) => `
     <div class="question-block">
       <div class="question-text">${esc(q.question)}</div>
-      <div class="options">
+      <div class="options" data-qi="${qi}">
         ${(q.options || []).map((opt, oi) => `
-          <button class="option-btn" data-qi="${qi}" data-opt="${esc(opt)}"
-                  onclick="selectGoalPlanOption(${qi}, this, ${JSON.stringify(esc(q.question))}, ${JSON.stringify(esc(opt))})">
+          <button class="option-btn" data-qi="${qi}" data-oi="${oi}">
             ${esc(opt)}
           </button>
         `).join('')}
       </div>
     </div>
   `).join('');
-}
 
-function selectGoalPlanOption(qi, el, question, option) {
-  // Deselect siblings
-  el.closest('.options').querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
-  el.classList.add('selected');
-  // Unescape for storage
-  _gpAnswers[question.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"')] =
-    option.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+  // Attach click handlers via event listeners (no inline onclick string issues)
+  container.querySelectorAll('.option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const qi  = parseInt(btn.dataset.qi, 10);
+      const oi  = parseInt(btn.dataset.oi, 10);
+      // Deselect siblings in same options group
+      btn.closest('.options').querySelectorAll('.option-btn')
+         .forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      // Store raw (unescaped) values directly from the questions array
+      _gpAnswers[_gpQuestions[qi].question] = _gpQuestions[qi].options[oi];
+    });
+  });
 }
 
 function closeGoalPlanModal() {

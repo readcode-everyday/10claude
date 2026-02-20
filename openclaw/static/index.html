@@ -205,7 +205,7 @@ select { border: 1px solid var(--border); border-radius: var(--radius-sm);
   font-size: 13px; font-family: inherit; background: var(--surface);
   color: var(--text); resize: vertical; outline: none; }
 .goal-feedback textarea:focus { border-color: var(--purple); }
-.goal-feedback-btns { display: flex; gap: 8px; margin-top: 8px; }
+.goal-feedback-btns { display: flex; gap: 8px; margin-top: 8px; width: 100%; }
 .btn-refine { padding: 7px 14px; background: var(--purple-bg); color: var(--purple);
               border: 1.5px solid var(--purple); border-radius: var(--radius-sm);
               font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity .15s; }
@@ -616,7 +616,7 @@ function renderGoalCard(goal) {
         <div class="goal-feedback-btns">
           <button class="btn-refine" onclick="refineGoal('${goal.id}')">✎ Refine</button>
           <button class="btn-approve" onclick="approveGoal('${goal.id}')">✓ Approve &amp; Start</button>
-          <button class="btn-cancel-goal" onclick="cancelTask('${goal.id}')" style="margin-left:auto">✕ Cancel</button>
+          <button class="btn-cancel-goal" onclick="cancelTask('${goal.id}')">✕ Cancel</button>
         </div>
        </div>`;
 

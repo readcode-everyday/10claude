@@ -242,8 +242,76 @@ def _check_tool_result_for_errors(block: dict) -> list[str]:
     return errors
 
 
+# ── Git project sync (pre/post task) ───────────────────────────────────────────
+
+def _project_abs(task: dict) -> Path | None:
+    project = task.get("project_path", "").strip()
+    if not project:
+        return None
+    p = PROJECTS_DIR / project
+    return p if p.is_dir() and (p / ".git").exists() else None
+
+
+def _has_remote(project_abs: Path) -> bool:
+    r = subprocess.run(["git", "-C", str(project_abs), "remote"],
+                       capture_output=True, text=True)
+    return bool(r.stdout.strip())
+
+
+def _git_sync_before(task: dict):
+    """
+    Before Claude runs: fetch + reset --hard to origin/main so every task
+    starts from the latest committed state, regardless of what a parallel
+    worker left behind in the working tree.
+    """
+    p = _project_abs(task)
+    if not p or not _has_remote(p):
+        return
+    log(f"  [git-sync] Fetching latest from origin…")
+    subprocess.run(["git", "-C", str(p), "fetch", "origin", "--prune"],
+                   capture_output=True)
+    subprocess.run(["git", "-C", str(p), "reset", "--hard", "origin/main"],
+                   capture_output=True)
+    subprocess.run(["git", "-C", str(p), "clean", "-fd"],
+                   capture_output=True)
+    log(f"  [git-sync] Reset to origin/main ✓")
+
+
+def _git_push_after(task: dict):
+    """
+    After Claude runs: if there are unpushed local commits, push them.
+    This is a safety net — Claude should have pushed already, but this
+    guarantees commits are never left local-only.
+    """
+    p = _project_abs(task)
+    if not p or not _has_remote(p):
+        return
+    # Check for unpushed commits
+    result = subprocess.run(
+        ["git", "-C", str(p), "log", "origin/main..HEAD", "--oneline"],
+        capture_output=True, text=True
+    )
+    if not result.stdout.strip():
+        return   # nothing to push
+    log(f"  [git-sync] Pushing unpushed commits to origin/main…")
+    for attempt in range(1, 4):
+        r = subprocess.run(["git", "-C", str(p), "push", "origin", "main"],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            log(f"  [git-sync] Push succeeded ✓")
+            return
+        log(f"  [git-sync] Push attempt {attempt} failed — rebasing…")
+        subprocess.run(["git", "-C", str(p), "pull", "--rebase", "origin", "main"],
+                       capture_output=True)
+    log(f"  [git-sync] WARNING: push failed after 3 attempts — commits are local only")
+
+
 def run_task(task: dict):
     task_id = task["id"]
+
+    # ── PRE-TASK: pull latest from remote so we start clean ─────────────────
+    _git_sync_before(task)
+
     prompt  = build_prompt(task)
     log(f"Starting task {task_id}: {task['prompt'][:80]!r}")
 
@@ -436,6 +504,9 @@ def run_task(task: dict):
         "errors_seen":      errors_seen[:10],
         "trace_file":       str(trace_path),
     }
+
+    # ── POST-TASK: push any commits Claude made (safety net) ────────────────
+    _git_push_after(task)
 
     complete_task(task_id, outcome, result_doc)
     log(

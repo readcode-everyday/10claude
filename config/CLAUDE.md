@@ -23,20 +23,31 @@
 
 ---
 
+## Worker Git Contract
+
+The worker (not Claude) handles two things automatically:
+
+- **Before your task starts:** the worker runs `git fetch && git reset --hard origin/main`
+  so you always begin from the latest pushed state. Do NOT pull at the start — it is already done.
+- **After your task ends:** the worker runs `git push origin main` as a safety net.
+
+**Your job:** make changes, commit, push. The worker guarantees the push eventually lands
+even if you forget, but you should still push explicitly.
+
 ## Parallel Development — Goal Sub-Tasks
 
-When you are executing a sub-task that was part of a decomposed goal, multiple workers
-may be committing to the same branch simultaneously. Follow this flow **every time**:
+When executing a sub-task from a decomposed goal, multiple workers may commit to the
+same branch simultaneously. Follow this flow **every time** before committing:
 
 1. Complete all file changes.
 2. `git add -A`
-3. `git pull --rebase`  — incorporate any commits from parallel workers first.
+3. `git pull --rebase origin main` — incorporate any commits from parallel workers.
 4. Resolve conflicts if any (`git status` → edit → `git add` → `git rebase --continue`).
 5. `git add -A`
 6. `git commit -m "feat: <task title>"`
+7. `git push origin main` (retry up to 3× if rejected — pull --rebase between attempts)
 
-**Never leave changes uncommitted.** Dependent tasks read the repo state directly;
-if your changes are not in git, the next task will not see them.
+**Never leave changes uncommitted.** Dependent tasks read the repo state directly.
 
 ## Parallel Development (Git Worktree)
 

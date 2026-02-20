@@ -16,23 +16,25 @@ You describe what you want done; the system plans, executes, and evaluates the w
 7. [Configuration](#configuration)
 8. [Web UI & Remote Access](#web-ui--remote-access)
 9. [How to Use](#how-to-use)
-10. [Migration to a New Machine](#migration-to-a-new-machine)
-11. [Recovery & Restore](#recovery--restore)
-12. [Troubleshooting](#troubleshooting)
+10. [Telegram Channel Setup](#telegram-channel-setup)
+11. [Migration to a New Machine](#migration-to-a-new-machine)
+12. [Recovery & Restore](#recovery--restore)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Architecture
 
 ```
-You (browser)
-      │
-      │  HTTPS :443
-      ▼
-   [ Caddy ]  — TLS termination + basic auth  (Docker, permanent)
-      │
-      │  HTTP :18888
-      ▼
+You (browser / Telegram / curl)
+      │                │
+      │  HTTPS :443    │  Telegram Bot API
+      ▼                ▼
+   [ Caddy ]    [ openclaw gateway ]  — systemd, :18789
+      │                │  routes messages to dev agent
+      │                │  dev agent calls /api/decompose or /api/submit
+      │  HTTP :18888   │
+      ▼                ▼
    [ status-ui ]  — FastAPI + Kanban UI  (Docker, permanent)
       │  writes task_store.json → status: pending
       │
@@ -47,10 +49,12 @@ You (browser)
    (6 CPU/6GB)    (6 CPU/6GB)    (6 CPU/6GB)
    [Docker, persistent, restart: unless-stopped]
       │
-      │  claude --dangerously-skip-permissions -p '<task>'
+      │  1. git fetch + reset --hard origin/main   (pre-task sync)
+      │  2. claude --dangerously-skip-permissions -p '<task>'
+      │  3. git push origin main (with retry)      (post-task push)
       │  writes workspace/results/{task_id}.json
       ▼
-   workspace/results/{task_id}.json
+   workspace/results/{task_id}.json  →  GitHub repo (auto-pushed)
 ```
 
 **Key design principle:** all state lives on the host (`~/10claude/workspace/`).
@@ -60,6 +64,11 @@ Containers are disposable — nothing is lost on restart or rebuild.
 Each polls the shared task queue every 5 seconds, atomically claims one pending task
 via `fcntl.flock`, executes it with the Claude CLI, and loops.
 Workers are idle (sleeping) when the queue is empty; they never exit on their own.
+
+**Worker git contract:** before every task the worker resets the project repo to
+`origin/main` so it always starts from the latest state; after every task it pushes
+any commits Claude made back to GitHub (with 3-attempt retry + rebase). This is
+enforced by `scripts/worker.py` — workers never start dirty or leave commits stranded.
 
 ---
 
@@ -76,13 +85,15 @@ Workers are idle (sleeping) when the queue is empty; they never exit on their ow
 **Restart:** `unless-stopped` — always running, managed by Docker
 
 **How a worker picks up a task:**
-1. Read `task_store.json`, find oldest `status: pending` task
+1. Read `task_store.json`, find oldest `status: pending` task with all `depends_on` met
 2. Acquire exclusive `flock` on `workspace/queue/.queue.lock` (cross-container lock)
 3. Mark task `in_progress`, write `worker_id`, release lock
-4. Run `claude --dangerously-skip-permissions -p '<task prompt>'`
-5. Write result to `workspace/results/{task_id}.json`
-6. Update task `status` to `completed` or `failed`, release lock
-7. Loop back to step 1
+4. **Pre-task git sync:** `git fetch && git reset --hard origin/main && git clean -fd` — always starts from latest remote state; discards any local debris from a previous run
+5. Run `claude --dangerously-skip-permissions -p '<task prompt>'`
+6. Write result to `workspace/results/{task_id}.json`
+7. Update task `status` to `completed` or `failed`, release lock
+8. **Post-task git push:** push any commits Claude made to `origin/main` (3-attempt retry with `pull --rebase` between attempts)
+9. Loop back to step 1
 
 **Bind mounts into each worker container:**
 
@@ -164,9 +175,18 @@ Goals (`type: "goal"`) are shown in the **Plan tab** only, not in the kanban. Th
 
 ---
 
-### 3. openclaw gateway (optional, personal assistant only)
+### 3. openclaw gateway — Telegram + multi-channel interface
 
-**What it is:** The [openclaw](https://openclaw.ai) npm package — an AI messaging and agent orchestration gateway. In the current architecture it is used for the `personal` assistant agent, **not** for task dispatch (workers handle that directly via the queue).
+**What it is:** The [openclaw](https://openclaw.ai) npm package — an AI messaging and agent orchestration gateway. It handles **Telegram (and other chat channels) natively — no custom bot code needed**.
+
+**Telegram is already supported out of the box.** When a user sends a Telegram message:
+1. openclaw receives it and routes it to the configured `dev` agent
+2. The dev agent (per `~/.openclaw/workspace/dev/AGENTS.md`) recognises task requests and calls the status-ui queue API (`/api/decompose` or `/api/submit`)
+3. Workers pick up the task; results are pushed to GitHub and visible in the kanban
+
+**You do NOT need to build a Telegram bot or write any bot code.** Just create a bot via BotFather and run one CLI command (see [Telegram Channel Setup](#telegram-channel-setup) below).
+
+**Other supported channels:** WhatsApp, Discord, Slack, Signal, iMessage, Matrix, Teams, and more — all via `openclaw channels add --channel <name>`.
 
 **Location:** Native host process, not in Docker.
 **Binary:** `~/.npm-global/bin/openclaw`
@@ -620,6 +640,17 @@ Up to 3 tasks run simultaneously (one per worker). Tasks beyond 3 wait in `pendi
 
 Goal sub-tasks automatically get `depends_on` set by the decomposer. For manual tasks, set **Prerequisite** to an existing completed task's ID — the new task will not be claimed until that task completes.
 
+### Via Telegram (no browser needed)
+
+Once the Telegram channel is configured (see below), you can submit goals from anywhere:
+
+- **"Queue a task: add dark mode to the settings page in my-project"** → worker picks it up
+- **"Decompose a goal: build a REST API with auth for my-project"** → goal appears in the kanban for review
+- **"What's the status of the queue?"** → dev agent calls `/api/tasks` and replies
+- **"Show me recent tasks"** → dev agent summarises the kanban
+
+The dev agent is a full Claude session that can answer questions, check status, and forward task requests to the queue via the API. You can interact conversationally.
+
 ### Check worker logs
 
 ```bash
@@ -632,6 +663,71 @@ docker compose logs worker-1 | grep task-abc12345
 # Status-ui logs (plan generation, health checks)
 docker compose logs -f status-ui
 ```
+
+---
+
+## Telegram Channel Setup
+
+openclaw has **built-in Telegram support** — no custom bot code, no webhooks to configure. You need:
+
+1. A Telegram bot token (from [@BotFather](https://t.me/BotFather))
+2. One CLI command
+
+### Step 1 — Create a bot
+
+In Telegram, message `@BotFather`:
+```
+/newbot
+# Follow the prompts → get a token like:  7123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Step 2 — Connect to openclaw
+
+```bash
+openclaw channels add --channel telegram --token <your-bot-token>
+```
+
+Verify it's working:
+```bash
+openclaw channels list
+# Should show: Telegram default: configured, token=config, enabled
+
+openclaw channels status
+```
+
+### Step 3 — Start a conversation
+
+1. Open your bot in Telegram and send `/start`
+2. openclaw will prompt you to pair — follow the pairing flow
+3. Once paired, send: **"Queue a task: add hello world to test-project"**
+4. The dev agent forwards it to the worker queue; check the kanban at `http://localhost:18888`
+
+### How the routing works
+
+```
+Telegram message
+      │
+      ▼
+openclaw gateway (:18789)
+      │  routes to dev agent
+      ▼
+~/.openclaw/workspace/dev/AGENTS.md   ← rules for the dev agent
+      │
+      │  for task requests: POST http://localhost:18888/api/submit
+      │  for goal requests: POST http://localhost:18888/api/decompose
+      ▼
+task_store.json → workers → GitHub
+```
+
+The dev agent's instructions are in `~/.openclaw/workspace/dev/AGENTS.md`. Edit that file to customise how the agent interprets Telegram messages or to add new commands.
+
+### Migration note
+
+When migrating to a new machine, re-run:
+```bash
+openclaw channels add --channel telegram --token <your-bot-token>
+```
+The bot token is stored in `~/.openclaw/openclaw.json` (included in the rsync migration).
 
 ---
 
@@ -758,3 +854,7 @@ claude auth login   # on the HOST (not inside a container)
 | New project not appearing on GitHub | `GITHUB_TOKEN` missing or wrong scope | Run `gh auth token` on host and set `GITHUB_TOKEN` in `.env`; token needs `repo` scope |
 | Tasks completed but files not in project | Worker used wrong project path | Check task prompt includes correct path; workers look in `/app/workspace/projects/<name>/` |
 | Newly created projects owned by root | `HOST_UID`/`HOST_GID` not set | Add `HOST_UID=1000` and `HOST_GID=1000` to `.env`, recreate status-ui |
+| Telegram bot not responding | Gateway not running or channel not paired | `openclaw gateway health`; `openclaw channels status`; re-run pairing if needed |
+| Worker started from stale code | Pre-task git sync shows conflicts | Check `docker compose logs worker-N`; the sync does a force-reset so conflicts shouldn't occur — check remote URL is correct |
+| Worker committed but didn't push | Push failed 3 times (e.g. auth issue) | Check worker logs for `[git-sync] WARNING: push failed`; verify `GITHUB_TOKEN` is valid and has `repo` scope |
+| Telegram: "I can't queue that" | dev agent not recognising request | Edit `~/.openclaw/workspace/dev/AGENTS.md` to add clearer instructions, or be more explicit: "Submit a task to the worker queue: ..." |

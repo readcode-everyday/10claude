@@ -1,8 +1,14 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
-    git curl nodejs npm \
+    git curl nodejs npm python3 \
     && npm install -g @anthropic-ai/claude-code \
     && rm -rf /var/lib/apt/lists/*
 
+# Non-root user with UID 1000 (matches the typical host user so bind-mounted
+# project files are writable without chown hacks).
+# Claude CLI refuses --dangerously-skip-permissions when run as root.
+RUN useradd -m -u 1000 -s /bin/bash worker
+
 WORKDIR /app
+USER worker

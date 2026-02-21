@@ -258,6 +258,73 @@ def _has_remote(project_abs: Path) -> bool:
     return bool(r.stdout.strip())
 
 
+def _default_branch(project_abs: Path) -> str:
+    """Return the current branch name (usually 'main' or 'master')."""
+    r = subprocess.run(
+        ["git", "-C", str(project_abs), "branch", "--show-current"],
+        capture_output=True, text=True
+    )
+    return r.stdout.strip() or "main"
+
+
+def _ensure_remote(project_abs: Path) -> bool:
+    """
+    If the project has a git repo but no remote, auto-create a private
+    GitHub repo via `gh` CLI and add the origin remote.
+    Returns True if remote exists (or was just created), False on failure.
+    """
+    if _has_remote(project_abs):
+        return True
+
+    # Check if gh CLI is available and authenticated
+    r = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"  [git-remote] gh CLI not authenticated — skipping auto-create")
+        return False
+
+    repo_name = project_abs.name
+    log(f"  [git-remote] No remote found. Creating GitHub repo '{repo_name}'…")
+
+    # Detect default branch name
+    branch = subprocess.run(
+        ["git", "-C", str(project_abs), "branch", "--show-current"],
+        capture_output=True, text=True
+    ).stdout.strip() or "main"
+
+    r = subprocess.run(
+        ["gh", "repo", "create", repo_name, "--private",
+         "--source", str(project_abs), "--remote", "origin", "--push"],
+        capture_output=True, text=True, cwd=str(project_abs)
+    )
+    if r.returncode == 0:
+        log(f"  [git-remote] Created and pushed to GitHub: {r.stdout.strip()}")
+        return True
+    else:
+        # Repo might already exist — try just adding the remote
+        log(f"  [git-remote] gh repo create failed: {r.stderr.strip()}")
+        # Try to get the gh username and add remote manually
+        user_r = subprocess.run(
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True, text=True
+        )
+        if user_r.returncode == 0:
+            username = user_r.stdout.strip()
+            remote_url = f"git@github.com:{username}/{repo_name}.git"
+            subprocess.run(
+                ["git", "-C", str(project_abs), "remote", "add", "origin", remote_url],
+                capture_output=True
+            )
+            push_r = subprocess.run(
+                ["git", "-C", str(project_abs), "push", "-u", "origin", branch],
+                capture_output=True, text=True
+            )
+            if push_r.returncode == 0:
+                log(f"  [git-remote] Added remote and pushed to {remote_url}")
+                return True
+        log(f"  [git-remote] Failed to create remote — commits will stay local")
+        return False
+
+
 def _git_sync_before(task: dict):
     """
     Before Claude runs: fetch + reset --hard to origin/main so every task
@@ -265,16 +332,20 @@ def _git_sync_before(task: dict):
     worker left behind in the working tree.
     """
     p = _project_abs(task)
-    if not p or not _has_remote(p):
+    if not p:
         return
-    log(f"  [git-sync] Fetching latest from origin…")
+    _ensure_remote(p)
+    if not _has_remote(p):
+        return
+    branch = _default_branch(p)
+    log(f"  [git-sync] Fetching latest from origin/{branch}…")
     subprocess.run(["git", "-C", str(p), "fetch", "origin", "--prune"],
                    capture_output=True)
-    subprocess.run(["git", "-C", str(p), "reset", "--hard", "origin/main"],
+    subprocess.run(["git", "-C", str(p), "reset", "--hard", f"origin/{branch}"],
                    capture_output=True)
     subprocess.run(["git", "-C", str(p), "clean", "-fd"],
                    capture_output=True)
-    log(f"  [git-sync] Reset to origin/main ✓")
+    log(f"  [git-sync] Reset to origin/{branch} ✓")
 
 
 def _git_push_after(task: dict):
@@ -284,24 +355,28 @@ def _git_push_after(task: dict):
     guarantees commits are never left local-only.
     """
     p = _project_abs(task)
-    if not p or not _has_remote(p):
+    if not p:
         return
+    _ensure_remote(p)
+    if not _has_remote(p):
+        return
+    branch = _default_branch(p)
     # Check for unpushed commits
     result = subprocess.run(
-        ["git", "-C", str(p), "log", "origin/main..HEAD", "--oneline"],
+        ["git", "-C", str(p), "log", f"origin/{branch}..HEAD", "--oneline"],
         capture_output=True, text=True
     )
     if not result.stdout.strip():
         return   # nothing to push
-    log(f"  [git-sync] Pushing unpushed commits to origin/main…")
+    log(f"  [git-sync] Pushing unpushed commits to origin/{branch}…")
     for attempt in range(1, 4):
-        r = subprocess.run(["git", "-C", str(p), "push", "origin", "main"],
+        r = subprocess.run(["git", "-C", str(p), "push", "origin", branch],
                            capture_output=True, text=True)
         if r.returncode == 0:
             log(f"  [git-sync] Push succeeded ✓")
             return
         log(f"  [git-sync] Push attempt {attempt} failed — rebasing…")
-        subprocess.run(["git", "-C", str(p), "pull", "--rebase", "origin", "main"],
+        subprocess.run(["git", "-C", str(p), "pull", "--rebase", "origin", branch],
                        capture_output=True)
     log(f"  [git-sync] WARNING: push failed after 3 attempts — commits are local only")
 

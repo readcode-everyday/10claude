@@ -361,10 +361,9 @@ def _watchdog_monitor(threads: dict[str, tuple]):
     """Check every 60s that all managed threads are alive; restart any that died."""
     while True:
         time.sleep(60)
-        for name, (fn, interval) in list(threads.items()):
-            t = threads[name][2] if len(threads[name]) > 2 else None
-            # Rebuild lookup — threads dict stores (fn, interval, thread)
-            if t is not None and not t.is_alive():
+        for name, spec in list(threads.items()):
+            fn, interval, t = spec
+            if not t.is_alive():
                 log.error(f"[watchdog] thread '{name}' died — restarting")
                 send_telegram(f"⚠️ *Watchdog*: thread `{name}` died and was restarted")
                 new_t = _start_thread(fn, interval)

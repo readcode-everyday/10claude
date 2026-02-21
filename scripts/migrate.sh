@@ -275,6 +275,22 @@ WorkingDirectory=$ROOT
 WantedBy=default.target
 SVCEOF
 
+if [ -f "$WATCHDOG_SERVICE" ] && ! grep -q "sg docker" "$WATCHDOG_SERVICE"; then
+    info "Patching watchdog service to run with docker group..."
+    python3 - "$WATCHDOG_SERVICE" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+content = open(path).read()
+def patch(m):
+    orig = m.group(1)
+    return f"ExecStart=/usr/bin/sg docker -c '{orig}'"
+content = re.sub(r'^ExecStart=(.+)$', patch, content, flags=re.MULTILINE)
+open(path, 'w').write(content)
+print("  ExecStart wrapped with sg docker")
+PYEOF
+    ok "Watchdog service patched with sg docker wrapper"
+fi
+
 systemctl --user daemon-reload
 systemctl --user enable openclaw-watchdog 2>/dev/null || true
 systemctl --user restart openclaw-watchdog

@@ -251,6 +251,38 @@ systemctl --user daemon-reload
 systemctl --user enable openclaw-gateway 2>/dev/null || true
 systemctl --user restart openclaw-gateway
 
+# ── 6b. openclaw watchdog (git backup, Claude ping, health checks) ────────────
+step "openclaw watchdog"
+
+WATCHDOG_SERVICE="$HOME/.config/systemd/user/openclaw-watchdog.service"
+cat > "$WATCHDOG_SERVICE" <<SVCEOF
+[Unit]
+Description=OpenClaw Watchdog — git backup, Claude ping, health checks, Telegram alerts
+After=network-online.target openclaw-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 $ROOT/scripts/watchdog.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PATH=$HOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=$ROOT
+
+[Install]
+WantedBy=default.target
+SVCEOF
+
+systemctl --user daemon-reload
+systemctl --user enable openclaw-watchdog 2>/dev/null || true
+systemctl --user restart openclaw-watchdog
+sleep 2
+systemctl --user is-active openclaw-watchdog &>/dev/null \
+    && ok "openclaw watchdog running" \
+    || warn "openclaw watchdog failed to start — check: journalctl --user -u openclaw-watchdog -n 20"
+
 GATEWAY_READY=false
 for i in $(seq 1 20); do
     openclaw gateway health &>/dev/null 2>&1 && GATEWAY_READY=true && break
@@ -308,8 +340,16 @@ echo "  OpenClaw is running on $(hostname)"
 echo ""
 echo "  Services:"
 echo "    openclaw gateway  →  http://localhost:18789  (systemd)"
+echo "    openclaw watchdog →  background threads      (systemd)"
 echo "    status-ui         →  http://localhost:18888  (docker)"
 echo "    caddy (TLS+auth)  →  https://localhost       (docker)"
+echo ""
+echo "  Watchdog (scripts/watchdog.py):"
+echo "    • Hourly git backup of ~/10claude and ~/.openclaw/workspace"
+echo "    • Hourly Claude session ping (keeps OAuth token warm)"
+echo "    • Health check every 5 min: containers, gateway, status-ui, stuck tasks"
+echo "    • Proactive Telegram alerts on new issues and resolutions"
+echo "    • Self-healing: dead threads auto-restarted; systemd restarts process on crash"
 echo ""
 echo -e "  ${RED}REQUIRED — cannot be automated:${NC}"
 echo ""

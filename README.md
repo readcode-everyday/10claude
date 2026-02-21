@@ -217,7 +217,45 @@ openclaw gateway health
 
 ---
 
-### 5. scripts/worker.py
+### 5. scripts/watchdog.py
+
+**What it is:** A host-level Python process managed by systemd that handles background maintenance and proactive monitoring.
+
+**Location:** `scripts/watchdog.py`
+**Managed by:** systemd user service `openclaw-watchdog` (`Restart=always`)
+
+**Responsibilities:**
+
+| Thread | Interval | What it does |
+|--------|----------|-------------|
+| `git_backup` | 1 hour | Auto-commits and pushes `~/10claude` and `~/.openclaw/workspace` if there are changes; skips if clean |
+| `claude_ping` | 1 hour | Runs `claude -p "hi"` to keep the OAuth session warm during idle periods; alerts via Telegram if it fails |
+| `health_check` | 5 min | Checks containers, openclaw gateway, status-ui HTTP health, and tasks stuck >40 min |
+| `watchdog_monitor` | 1 min | Checks that all three threads above are alive; restarts any that have died |
+
+**Failure modes:**
+- Thread crashes → `watchdog_monitor` restarts it within 60s and sends Telegram alert
+- `watchdog.py` process crashes → systemd `Restart=always` restarts it within 10s
+- Host reboots → systemd auto-starts it on login
+
+**Telegram alerts sent for:**
+- Git push failing after 3 attempts
+- Claude session expired or timing out
+- Any Docker container going down
+- status-ui or openclaw gateway not responding
+- Task stuck in_progress >40 min
+- Thread or process restart events
+
+**Service management:**
+```bash
+systemctl --user status openclaw-watchdog
+journalctl --user -u openclaw-watchdog -f
+systemctl --user restart openclaw-watchdog
+```
+
+---
+
+### 6. scripts/worker.py
 
 **What it is:** The polling worker loop. Runs inside each `worker-1/2/3` container.
 
@@ -855,6 +893,9 @@ claude auth login   # on the HOST (not inside a container)
 | Tasks completed but files not in project | Worker used wrong project path | Check task prompt includes correct path; workers look in `/app/workspace/projects/<name>/` |
 | Newly created projects owned by root | `HOST_UID`/`HOST_GID` not set | Add `HOST_UID=1000` and `HOST_GID=1000` to `.env`, recreate status-ui |
 | Telegram bot not responding | Gateway not running or channel not paired | `openclaw gateway health`; `openclaw channels status`; re-run pairing if needed |
+| Watchdog not running | systemd service stopped | `systemctl --user start openclaw-watchdog`; check `journalctl --user -u openclaw-watchdog -n 20` |
+| No hourly backup happening | Watchdog thread died | Check watchdog logs; it self-heals within 60s, or `systemctl --user restart openclaw-watchdog` |
+| Claude ping alert received | OAuth session expired | Run `claude auth login` on the host; workers pick it up immediately via bind-mount |
 | Worker started from stale code | Pre-task git sync shows conflicts | Check `docker compose logs worker-N`; the sync does a force-reset so conflicts shouldn't occur — check remote URL is correct |
 | Worker committed but didn't push | Push failed 3 times (e.g. auth issue) | Check worker logs for `[git-sync] WARNING: push failed`; verify `GITHUB_TOKEN` is valid and has `repo` scope |
 | Telegram: "I can't queue that" | dev agent not recognising request | Edit `~/.openclaw/workspace/dev/AGENTS.md` to add clearer instructions, or be more explicit: "Submit a task to the worker queue: ..." |
